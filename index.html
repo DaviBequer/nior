@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#15181B">
+<title>Nior — Mapa de Processos</title>
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark">N</span>
+    <div class="brand-text">
+      <h1>Nior</h1>
+      <p>Mapa de Processos · PCP</p>
+    </div>
+  </div>
+  <div class="topbar-actions">
+    <button class="btn-icon" id="btnZoomOut" aria-label="Diminuir zoom">−</button>
+    <button class="btn-icon" id="btnZoomReset" aria-label="Centralizar">◎</button>
+    <button class="btn-icon" id="btnZoomIn" aria-label="Aumentar zoom">+</button>
+    <button class="btn-icon btn-add" id="btnNovoBloco" aria-label="Novo bloco">+ Bloco</button>
+  </div>
+</header>
+
+<main class="canvas-wrap" id="canvasWrap">
+  <div class="canvas-grid" id="canvasGrid"></div>
+  <div class="canvas-stage" id="canvasStage">
+    <svg class="canvas-lines" id="canvasLines"></svg>
+    <div class="canvas-nodes" id="canvasNodes"></div>
+  </div>
+</main>
+
+<p class="hint" id="hintBar">Arraste pra navegar · pinça ou scroll pra dar zoom · toque num bloco pra abrir</p>
+
+<!-- Painel lateral de detalhe do bloco -->
+<div class="overlay" id="overlay"></div>
+<aside class="panel" id="panelBloco">
+  <div class="panel-head">
+    <div class="panel-tag" id="panelTag">BLOCO</div>
+    <button class="panel-close" id="panelClose" aria-label="Fechar">×</button>
+  </div>
+  <input type="text" class="panel-title-input" id="panelTitulo" placeholder="Nome do bloco">
+  <textarea class="panel-desc-input" id="panelDescricao" placeholder="Descrição geral do processo..." rows="2"></textarea>
+
+  <div class="panel-section">
+    <div class="panel-section-head">
+      <h3>Passos do processo</h3>
+      <button class="btn-mini" id="btnAddPasso">+ Passo</button>
+    </div>
+    <div class="passos-lista" id="passosLista"></div>
+  </div>
+
+  <div class="panel-section">
+    <div class="panel-section-head">
+      <h3>Conexões</h3>
+      <button class="btn-mini" id="btnConectar">+ Conectar</button>
+    </div>
+    <div class="conexoes-lista" id="conexoesLista"></div>
+    <p class="empty-hint" id="conexoesEmptyHint">Sem conexões ainda.</p>
+  </div>
+
+  <button class="btn-danger-outline" id="btnExcluirBloco">Excluir este bloco</button>
+</aside>
+
+<!-- Modal escolher bloco pra conectar -->
+<div class="overlay" id="overlayConectar"></div>
+<div class="modal-select" id="modalConectar">
+  <div class="modal-select-head">
+    <h3>Conectar a qual bloco?</h3>
+    <button class="panel-close" id="modalConectarClose">×</button>
+  </div>
+  <div class="modal-select-lista" id="modalConectarLista"></div>
+</div>
+
+<!-- Modal passo (adicionar/editar) -->
+<div class="overlay" id="overlayPasso"></div>
+<div class="modal-select modal-passo" id="modalPasso">
+  <div class="modal-select-head">
+    <h3 id="modalPassoTitulo">Novo passo</h3>
+    <button class="panel-close" id="modalPassoClose">×</button>
+  </div>
+  <label class="field-label">Descrição do passo</label>
+  <textarea id="passoDescricao" rows="3" placeholder="O que é feito nesse passo..."></textarea>
+  <label class="field-label">Ideia de melhoria (opcional)</label>
+  <textarea id="passoMelhoria" rows="2" placeholder="O que poderia ser otimizado aqui..."></textarea>
+  <button class="btn-primary-full" id="btnSalvarPasso">Salvar passo</button>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
