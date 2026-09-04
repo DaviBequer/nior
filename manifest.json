@@ -1,14 +1,35 @@
 {
-  "name": "Nior — Mapa de Processos",
-  "short_name": "Nior",
-  "description": "Mapa visual de processos de PCP",
-  "start_url": "./index.html",
-  "display": "standalone",
-  "background_color": "#15181B",
-  "theme_color": "#15181B",
-  "orientation": "any",
-  "icons": [
-    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
-    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
-  ]
+    "name": "Gestão de Costura",
+    "short_name": "Costura",
+    "description": "Aplicativo para gestão de lotes de costura e controle de ganhos",
+    "start_url": "/",
+    "scope": "/",
+    "display": "standalone",
+    "orientation": "portrait-primary",
+    "background_color": "#ffffff",
+    "theme_color": "#1e3a8a",
+    "prefer_related_applications": false,
+    "icons": [
+        {
+            "src": "icon-192.png",
+            "sizes": "192x192",
+            "type": "image/png",
+            "purpose": "any"
+        },
+        {
+            "src": "icon-512.png",
+            "sizes": "512x512",
+            "type": "image/png",
+            "purpose": "any"
+        }
+    ],
+    "categories": ["productivity", "business"],
+    "screenshots": [
+        {
+            "src": "icon-192.png",
+            "sizes": "192x192",
+            "type": "image/png",
+            "form_factor": "narrow"
+        }
+    ]
 }

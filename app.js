@@ -1,428 +1,722 @@
-/* ============ Nior — Mapa de Processos ============ */
-
-const STORAGE_KEY = 'nior_data_v1';
-
-function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
-
-function seedData(){
-  const b = (id,nome,eyebrow,x,y,descricao) => ({id,nome,eyebrow,x,y,descricao:descricao||'', passos:[], conexoes:[]});
-  const blocos = [
-    b('sistema','Sistema','Excia ERP', 0, -260, 'Limpeza e organização do sistema: lotes atuais e pendências antigas.'),
-    b('corte','Corte', 'Etapa 1', -260, -90),
-    b('costura','Costura', 'Etapa 2', -260, 90),
-    b('estamparia','Estamparia', 'Etapa 3', 40, 90, ''),
-    b('aplique','Aplique', 'Etapa 3', 40, 250),
-    b('plaquinha','Plaquinha', 'Etapa 4', 300, 250, 'Pecinha costurada/caseada, geralmente em shorts e vestidos.'),
-    b('embalagem','Embalagem', 'Etapa final', 300, 0),
-    b('insumos','Insumos & NF', 'Apoio', -520, 0, 'Organização de insumos, nota fiscal e lotes.'),
-  ];
-  const conn = (a,bb) => { const n = blocos.find(x=>x.id===a); if(n && !n.conexoes.includes(bb)) n.conexoes.push(bb); };
-  conn('insumos','corte');
-  conn('corte','costura');
-  conn('costura','estamparia');
-  conn('costura','aplique');
-  conn('aplique','plaquinha');
-  conn('estamparia','embalagem');
-  conn('plaquinha','embalagem');
-  conn('sistema','corte');
-  return { blocos, view:{ x: window.innerWidth/2, y: window.innerHeight/2 + 40, scale: 0.9 } };
-}
-
-let state = loadState();
-
-function loadState(){
-  try{
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if(raw) return JSON.parse(raw);
-  }catch(e){}
-  return seedData();
-}
-function saveState(){
-  try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }catch(e){}
-}
-
-/* ---------- refs ---------- */
-const canvasWrap = document.getElementById('canvasWrap');
-const canvasStage = document.getElementById('canvasStage');
-const canvasNodes = document.getElementById('canvasNodes');
-const canvasLines = document.getElementById('canvasLines');
-const hintBar = document.getElementById('hintBar');
-
-let activeBlocoId = null;
-
-/* ---------- render ---------- */
-function applyTransform(){
-  canvasStage.style.transform = `translate(${state.view.x}px, ${state.view.y}px) scale(${state.view.scale})`;
-}
-
-function render(){
-  canvasNodes.innerHTML = '';
-  state.blocos.forEach(bloco=>{
-    const el = document.createElement('div');
-    el.className = 'node';
-    el.style.left = bloco.x + 'px';
-    el.style.top = bloco.y + 'px';
-    el.dataset.id = bloco.id;
-    el.innerHTML = `
-      <div class="node-eyebrow">${escapeHtml(bloco.eyebrow||'BLOCO')}</div>
-      <div class="node-title">${escapeHtml(bloco.nome||'Sem nome')}</div>
-      <div class="node-meta"><span class="dot"></span>${bloco.passos.length} passo${bloco.passos.length===1?'':'s'}</div>
-    `;
-    attachNodeDrag(el, bloco);
-    canvasNodes.appendChild(el);
-  });
-  renderLines();
-  applyTransform();
-}
-
-function renderLines(){
-  const w = 8000, h = 8000, offset = 4000;
-  let svg = `<g transform="translate(${offset},${offset})">`;
-  state.blocos.forEach(bloco=>{
-    bloco.conexoes.forEach(destId=>{
-      const dest = state.blocos.find(x=>x.id===destId);
-      if(!dest) return;
-      const mx = (bloco.x+dest.x)/2, my = (bloco.y+dest.y)/2 - 30;
-      svg += `<path class="stitch-line" d="M${bloco.x},${bloco.y} Q${mx},${my} ${dest.x},${dest.y}"/>`;
-    });
-  });
-  svg += '</g>';
-  canvasLines.setAttribute('viewBox', `0 0 ${w} ${h}`);
-  canvasLines.innerHTML = svg;
-}
-
-function escapeHtml(s){
-  return (s||'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-}
-
-/* ---------- pan / zoom do canvas ---------- */
-let panning = false, panStart = {x:0,y:0}, viewStart = {x:0,y:0};
-let pinchStartDist = 0, pinchStartScale = 1;
-let didDrag = false;
-
-canvasWrap.addEventListener('pointerdown', (e)=>{
-  if(e.target.closest('.node')) return;
-  panning = true; didDrag = false;
-  canvasWrap.classList.add('dragging');
-  panStart = {x:e.clientX, y:e.clientY};
-  viewStart = {x:state.view.x, y:state.view.y};
-  canvasWrap.setPointerCapture(e.pointerId);
-});
-canvasWrap.addEventListener('pointermove', (e)=>{
-  if(!panning) return;
-  const dx = e.clientX - panStart.x, dy = e.clientY - panStart.y;
-  if(Math.abs(dx)>3 || Math.abs(dy)>3) didDrag = true;
-  state.view.x = viewStart.x + dx;
-  state.view.y = viewStart.y + dy;
-  applyTransform();
-});
-function endPan(){
-  if(panning){ panning = false; canvasWrap.classList.remove('dragging'); saveState(); }
-}
-canvasWrap.addEventListener('pointerup', endPan);
-canvasWrap.addEventListener('pointercancel', endPan);
-
-canvasWrap.addEventListener('wheel', (e)=>{
-  e.preventDefault();
-  const delta = -e.deltaY * 0.0012;
-  zoomAt(e.clientX, e.clientY, delta);
-}, {passive:false});
-
-// pinch (touch)
-let touches = {};
-canvasWrap.addEventListener('touchstart', (e)=>{
-  if(e.touches.length===2){
-    panning = false;
-    pinchStartDist = touchDist(e.touches);
-    pinchStartScale = state.view.scale;
-  }
-}, {passive:true});
-canvasWrap.addEventListener('touchmove', (e)=>{
-  if(e.touches.length===2){
-    e.preventDefault();
-    const d = touchDist(e.touches);
-    const factor = d / pinchStartDist;
-    const newScale = clamp(pinchStartScale * factor, 0.35, 2.2);
-    const cx = (e.touches[0].clientX + e.touches[1].clientX)/2;
-    const cy = (e.touches[0].clientY + e.touches[1].clientY)/2;
-    setZoom(newScale, cx, cy);
-  }
-}, {passive:false});
-
-function touchDist(t){
-  return Math.hypot(t[0].clientX-t[1].clientX, t[0].clientY-t[1].clientY);
-}
-function clamp(v,min,max){ return Math.max(min, Math.min(max, v)); }
-
-function zoomAt(clientX, clientY, delta){
-  const newScale = clamp(state.view.scale * (1+delta), 0.35, 2.2);
-  setZoom(newScale, clientX, clientY);
-}
-function setZoom(newScale, clientX, clientY){
-  const rect = canvasWrap.getBoundingClientRect();
-  const px = clientX - rect.left, py = clientY - rect.top;
-  const worldX = (px - state.view.x) / state.view.scale;
-  const worldY = (py - state.view.y) / state.view.scale;
-  state.view.scale = newScale;
-  state.view.x = px - worldX*newScale;
-  state.view.y = py - worldY*newScale;
-  applyTransform();
-  saveState();
-}
-
-document.getElementById('btnZoomIn').addEventListener('click', ()=> zoomAt(window.innerWidth/2, window.innerHeight/2, 0.25));
-document.getElementById('btnZoomOut').addEventListener('click', ()=> zoomAt(window.innerWidth/2, window.innerHeight/2, -0.25));
-document.getElementById('btnZoomReset').addEventListener('click', ()=>{
-  state.view = { x: window.innerWidth/2, y: window.innerHeight/2 + 40, scale: 0.9 };
-  applyTransform(); saveState();
-});
-
-/* ---------- drag individual de nó ---------- */
-function attachNodeDrag(el, bloco){
-  let dragging = false, moved = false;
-  let startClient = {x:0,y:0}, startPos = {x:0,y:0};
-
-  el.addEventListener('pointerdown', (e)=>{
-    e.stopPropagation();
-    dragging = true; moved = false;
-    startClient = {x:e.clientX, y:e.clientY};
-    startPos = {x:bloco.x, y:bloco.y};
-    el.setPointerCapture(e.pointerId);
-  });
-  el.addEventListener('pointermove', (e)=>{
-    if(!dragging) return;
-    const dx = (e.clientX - startClient.x) / state.view.scale;
-    const dy = (e.clientY - startClient.y) / state.view.scale;
-    if(Math.abs(dx)>3 || Math.abs(dy)>3) moved = true;
-    if(moved){
-      bloco.x = startPos.x + dx;
-      bloco.y = startPos.y + dy;
-      el.style.left = bloco.x+'px';
-      el.style.top = bloco.y+'px';
-      renderLines();
+// ===== MODELS & TYPES =====
+class Lote {
+    constructor(data = {}) {
+        this.id = data.id || this.generateId();
+        this.referencia = data.referencia || '';
+        this.tipo = data.tipo || 'superior';
+        this.tamanhos = data.tamanhos || [];
+        
+        this.qtdSuperior = data.qtdSuperior || 0;
+        this.qtdInferior = data.qtdInferior || 0;
+        this.qtdTamanho6 = data.qtdTamanho6 || 0;
+        this.qtdTamanho8 = data.qtdTamanho8 || 0;
+        
+        this.valorPeca = data.valorPeca || 0;
+        this.valorUnitarioSuperior = data.valorUnitarioSuperior || data.valorPeca || 0;
+        this.valorUnitarioInferior = data.valorUnitarioInferior || data.valorPeca || 0;
+        this.valorAdicionalTamanho6 = data.valorAdicionalTamanho6 || 0;
+        this.cobraAdicionalTam6 = data.cobraAdicionalTam6 !== false;
+        
+        this.valorTotal = data.valorTotal || 0;
+        
+        this.dataInicio = data.dataInicio || new Date().toISOString();
+        this.dataFim = data.dataFim || null;
+        this.status = data.status || 'aberto';
+        this.foto = data.foto || null;
     }
-  });
-  el.addEventListener('pointerup', (e)=>{
-    e.stopPropagation();
-    dragging = false;
-    if(moved){ saveState(); }
-    else{ openPanel(bloco.id); }
-  });
+    
+    generateId() {
+        return Date.now().toString(36) + Math.random().toString(36).substr(2);
+    }
+    
+    calcularValorTotal() {
+        let total = 0;
+        
+        if (this.tipo === 'superior') {
+            total = this.qtdSuperior * this.valorUnitarioSuperior;
+        } else if (this.tipo === 'inferior') {
+            total = this.qtdInferior * this.valorUnitarioInferior;
+        } else if (this.tipo === 'conjunto') {
+            total = (this.qtdSuperior * this.valorUnitarioSuperior) + 
+                    (this.qtdInferior * this.valorUnitarioInferior);
+        }
+        
+        if (this.qtdTamanho6 > 0 && this.cobraAdicionalTam6) {
+            total += this.qtdTamanho6 * this.valorAdicionalTamanho6;
+        }
+        
+        if (this.qtdTamanho8 > 0) {
+            total += this.qtdTamanho8 * (this.valorAdicionalTamanho6 || 0);
+        }
+        
+        this.valorTotal = total;
+        return total;
+    }
 }
 
-/* ---------- Novo bloco ---------- */
-document.getElementById('btnNovoBloco').addEventListener('click', ()=>{
-  const id = uid();
-  const centerWorld = {
-    x: (window.innerWidth/2 - state.view.x)/state.view.scale,
-    y: (window.innerHeight/2 - state.view.y)/state.view.scale
-  };
-  state.blocos.push({ id, nome:'', eyebrow:'BLOCO', x:centerWorld.x, y:centerWorld.y, descricao:'', passos:[], conexoes:[] });
-  saveState();
-  render();
-  openPanel(id);
+class AppSettings {
+    constructor(data = {}) {
+        this.appName = data.appName || 'Gestão Costura';
+        this.logo = data.logo || 'icon-192.png';
+        this.monthlyGoal = data.monthlyGoal || 3000;
+        this.whatsappNumber = data.whatsappNumber || '';
+        this.manualRevenue = data.manualRevenue || {};
+    }
+}
+
+// ===== SERVICES =====
+class StorageService {
+    constructor() {
+        this.LOTES_KEY = 'atelie_lotes_data';
+        this.SETTINGS_KEY = 'atelie_settings';
+        this.USER_KEY = 'atelie_user';
+    }
+    
+    saveLotes(lotes) {
+        try {
+            localStorage.setItem(this.LOTES_KEY, JSON.stringify(lotes));
+        } catch (e) {
+            console.error('Erro ao salvar lotes', e);
+            alert('Erro: Memória cheia. Limpe dados antigos.');
+        }
+    }
+    
+    loadLotes() {
+        try {
+            const data = localStorage.getItem(this.LOTES_KEY);
+            return data ? JSON.parse(data).map(l => new Lote(l)) : [];
+        } catch (e) {
+            console.error('Erro ao carregar lotes', e);
+            return [];
+        }
+    }
+    
+    saveSettings(settings) {
+        try {
+            localStorage.setItem(this.SETTINGS_KEY, JSON.stringify(settings));
+        } catch (e) {
+            console.error('Erro ao salvar configurações', e);
+        }
+    }
+    
+    loadSettings() {
+        try {
+            const data = localStorage.getItem(this.SETTINGS_KEY);
+            return data ? new AppSettings(JSON.parse(data)) : new AppSettings();
+        } catch (e) {
+            console.error('Erro ao carregar configurações', e);
+            return new AppSettings();
+        }
+    }
+    
+    saveUser(user) {
+        localStorage.setItem(this.USER_KEY, JSON.stringify(user));
+    }
+    
+    loadUser() {
+        try {
+            const data = localStorage.getItem(this.USER_KEY);
+            return data ? JSON.parse(data) : null;
+        } catch (e) {
+            return null;
+        }
+    }
+    
+    clearUser() {
+        localStorage.removeItem(this.USER_KEY);
+    }
+}
+
+class LoteService {
+    constructor(storage) {
+        this.storage = storage;
+        this.lotes = storage.loadLotes();
+        this.settings = storage.loadSettings();
+        this.filter = 'este_mes';
+    }
+    
+    addLote(lote) {
+        lote.calcularValorTotal();
+        this.lotes.unshift(lote);
+        this.storage.saveLotes(this.lotes);
+    }
+    
+    editLote(lote) {
+        lote.calcularValorTotal();
+        const index = this.lotes.findIndex(l => l.id === lote.id);
+        if (index !== -1) {
+            this.lotes[index] = lote;
+            this.storage.saveLotes(this.lotes);
+        }
+    }
+    
+    deleteLote(id) {
+        this.lotes = this.lotes.filter(l => l.id !== id);
+        this.storage.saveLotes(this.lotes);
+    }
+    
+    getLote(id) {
+        return this.lotes.find(l => l.id === id);
+    }
+    
+    getFilteredLotes() {
+        const now = new Date();
+        
+        return this.lotes.filter(l => {
+            if (this.filter === 'em_andamento') {
+                return l.status === 'em_andamento';
+            }
+            
+            if (this.filter === 'este_mes') {
+                const lotDate = new Date(l.dataFim || l.dataInicio);
+                return lotDate.getMonth() === now.getMonth() && 
+                       lotDate.getFullYear() === now.getFullYear();
+            }
+            
+            if (this.filter === 'mes_passado') {
+                const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+                const lotDate = new Date(l.dataFim || l.dataInicio);
+                return lotDate.getMonth() === lastMonth.getMonth() && 
+                       lotDate.getFullYear() === lastMonth.getFullYear();
+            }
+            
+            return true;
+        });
+    }
+    
+    getTotalGanhos() {
+        return this.getFilteredLotes()
+            .filter(l => l.status === 'finalizado')
+            .reduce((sum, l) => sum + l.valorTotal, 0);
+    }
+    
+    getLotesEmAndamento() {
+        return this.lotes.filter(l => l.status === 'em_andamento').length;
+    }
+    
+    getLotesFinalizados() {
+        return this.lotes.filter(l => l.status === 'finalizado').length;
+    }
+    
+    getMonthData(year, month) {
+        return this.lotes.filter(l => {
+            if (l.status !== 'finalizado') return false;
+            const date = new Date(l.dataFim || l.dataInicio);
+            return date.getFullYear() === year && date.getMonth() === month;
+        }).reduce((sum, l) => sum + l.valorTotal, 0);
+    }
+    
+    updateSettings(settings) {
+        this.settings = new AppSettings(settings);
+        this.storage.saveSettings(this.settings);
+    }
+}
+
+class UIController {
+    constructor() {
+        this.storage = new StorageService();
+        this.user = this.storage.loadUser();
+        this.loteService = new LoteService(this.storage);
+        this.showFormModal = false;
+        this.showSettingsModal = false;
+        this.showReportModal = false;
+        this.editingLote = null;
+        
+        this.render();
+        this.setupServiceWorker();
+    }
+    
+    setupServiceWorker() {
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('sw.js').catch(err => {
+                console.log('SW registration failed:', err);
+            });
+        }
+    }
+    
+    hideSplash() {
+        setTimeout(() => {
+            const splash = document.getElementById('splash');
+            if (splash) {
+                splash.classList.add('hidden');
+            }
+        }, 2200);
+    }
+    
+    render() {
+        const app = document.getElementById('app');
+        
+        if (!this.user) {
+            this.renderLogin(app);
+        } else {
+            this.renderMain(app);
+        }
+        
+        this.hideSplash();
+    }
+    
+    renderLogin(container) {
+        container.innerHTML = `
+            <div class="login-screen">
+                <div class="login-content">
+                    <div class="login-logo">
+                        <img src="${this.loteService.settings.logo}" alt="Logo">
+                    </div>
+                    <h1 class="login-title">Gestão Costura</h1>
+                    <p class="login-subtitle">Controle seus lotes e ganhos</p>
+                </div>
+                
+                <form id="loginForm" class="login-form">
+                    <div class="form-group">
+                        <label>Nome</label>
+                        <input type="text" id="loginName" placeholder="Seu nome" required>
+                    </div>
+                    
+                    <button type="submit" class="btn btn-primary" style="width: 100%;">
+                        Entrar
+                    </button>
+                </form>
+                
+                <p class="login-footer">Seus dados são salvos localmente no dispositivo</p>
+            </div>
+        `;
+        
+        document.getElementById('loginForm').addEventListener('submit', (e) => {
+            e.preventDefault();
+            const name = document.getElementById('loginName').value.trim();
+            if (name) {
+                this.user = { name, loginDate: new Date().toISOString() };
+                this.storage.saveUser(this.user);
+                this.render();
+            }
+        });
+    }
+    
+    renderMain(container) {
+        container.innerHTML = `
+            <div class="main-screen">
+                <header class="header">
+                    <div class="header-logo">
+                        <img src="${this.loteService.settings.logo}" alt="Logo">
+                    </div>
+                </header>
+                
+                <main class="main-content">
+                    <div id="dashboardContainer"></div>
+                    <div id="filterContainer"></div>
+                    <div id="loteListContainer"></div>
+                    <div style="height: 120px;"></div>
+                </main>
+            </div>
+            
+            <div class="bottom-actions">
+                <button id="btnNewLote" class="btn-new-lote">
+                    <span>➕</span>
+                    <span>Novo Lote</span>
+                </button>
+                <button id="btnLogout" class="btn btn-secondary" style="width: 100%;">
+                    Sair
+                </button>
+            </div>
+        `;
+        
+        this.renderDashboard();
+        this.renderFilters();
+        this.renderLoteList();
+        
+        document.getElementById('btnNewLote').addEventListener('click', () => this.openFormModal(null));
+        document.getElementById('btnLogout').addEventListener('click', () => this.logout());
+        document.querySelector('.header-logo').addEventListener('click', () => this.openSettingsModal());
+    }
+    
+    renderDashboard() {
+        const container = document.getElementById('dashboardContainer');
+        const totalGanhos = this.loteService.getTotalGanhos();
+        const emAndamento = this.loteService.getLotesEmAndamento();
+        const finalizados = this.loteService.getLotesFinalizados();
+        const meta = this.loteService.settings.monthlyGoal;
+        const percentualMeta = Math.round((totalGanhos / meta) * 100);
+        
+        container.innerHTML = `
+            <div class="dashboard">
+                <div class="dashboard-card">
+                    <div class="dashboard-card-label">Ganhos do Mês</div>
+                    <div class="dashboard-card-value">R$ ${totalGanhos.toFixed(2)}</div>
+                    <div class="dashboard-card-footer">${percentualMeta}% da meta</div>
+                </div>
+                
+                <div class="dashboard-card accent">
+                    <div class="dashboard-card-label">Meta Mensal</div>
+                    <div class="dashboard-card-value">R$ ${meta.toFixed(2)}</div>
+                    <div class="dashboard-card-footer">${finalizados} finalizados</div>
+                </div>
+                
+                <div class="dashboard-card">
+                    <div class="dashboard-card-label">Em Andamento</div>
+                    <div class="dashboard-card-value">${emAndamento}</div>
+                    <div class="dashboard-card-footer">lotes ativos</div>
+                </div>
+            </div>
+        `;
+    }
+    
+    renderFilters() {
+        const container = document.getElementById('filterContainer');
+        const filters = [
+            { value: 'este_mes', label: 'Este Mês' },
+            { value: 'mes_passado', label: 'Mês Passado' },
+            { value: 'em_andamento', label: 'Em Andamento' },
+            { value: 'todos', label: 'Todos' }
+        ];
+        
+        let html = '<div class="filters">';
+        filters.forEach(f => {
+            const active = this.loteService.filter === f.value ? 'active' : '';
+            html += `<button class="filter-btn ${active}" data-filter="${f.value}">${f.label}</button>`;
+        });
+        html += '</div>';
+        
+        container.innerHTML = html;
+        
+        container.querySelectorAll('.filter-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                this.loteService.filter = e.target.dataset.filter;
+                this.renderFilters();
+                this.renderLoteList();
+                this.renderDashboard();
+            });
+        });
+    }
+    
+    renderLoteList() {
+        const container = document.getElementById('loteListContainer');
+        const lotes = this.loteService.getFilteredLotes();
+        
+        if (lotes.length === 0) {
+            container.innerHTML = '<p style="text-align: center; color: var(--gray-text); padding: 2rem;">Nenhum lote encontrado</p>';
+            return;
+        }
+        
+        let html = '<div class="lote-list">';
+        lotes.forEach(lote => {
+            const statusClass = lote.status;
+            const statusLabel = {
+                'aberto': 'Aberto',
+                'em_andamento': 'Em Andamento',
+                'finalizado': 'Finalizado'
+            }[lote.status] || lote.status;
+            
+            html += `
+                <div class="lote-item">
+                    <div class="lote-header">
+                        <div class="lote-reference">${lote.referencia}</div>
+                        <span class="lote-status ${statusClass}">${statusLabel}</span>
+                    </div>
+                    
+                    <div class="lote-details">
+                        <div class="lote-detail">
+                            <span class="lote-detail-label">Tipo</span>
+                            <span class="lote-detail-value">${lote.tipo.charAt(0).toUpperCase() + lote.tipo.slice(1)}</span>
+                        </div>
+                        <div class="lote-detail">
+                            <span class="lote-detail-label">Valor Total</span>
+                            <span class="lote-detail-value">R$ ${lote.valorTotal.toFixed(2)}</span>
+                        </div>
+                        <div class="lote-detail">
+                            <span class="lote-detail-label">Data Início</span>
+                            <span class="lote-detail-value">${new Date(lote.dataInicio).toLocaleDateString('pt-BR')}</span>
+                        </div>
+                        ${lote.dataFim ? `
+                            <div class="lote-detail">
+                                <span class="lote-detail-label">Data Fim</span>
+                                <span class="lote-detail-value">${new Date(lote.dataFim).toLocaleDateString('pt-BR')}</span>
+                            </div>
+                        ` : ''}
+                    </div>
+                    
+                    <div class="lote-actions">
+                        <button class="btn btn-secondary btn-sm" onclick="ui.openFormModal('${lote.id}')">Editar</button>
+                        ${lote.status !== 'finalizado' ? `
+                            <button class="btn btn-primary btn-sm" onclick="ui.finalizarLote('${lote.id}')">Finalizar</button>
+                        ` : ''}
+                        <button class="btn btn-secondary btn-sm" onclick="ui.deleteLote('${lote.id}')">Deletar</button>
+                    </div>
+                </div>
+            `;
+        });
+        html += '</div>';
+        
+        container.innerHTML = html;
+    }
+    
+    openFormModal(loteId) {
+        const lote = loteId ? this.loteService.getLote(loteId) : null;
+        this.editingLote = lote || new Lote();
+        
+        const modalsContainer = document.getElementById('modals');
+        const isFinalizando = lote && lote.status === 'em_andamento';
+        
+        modalsContainer.innerHTML = `
+            <div class="modal">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h2 class="modal-title">${lote ? 'Editar Lote' : 'Novo Lote'}</h2>
+                        <button type="button" class="modal-close">✕</button>
+                    </div>
+                    
+                    <form id="loteForm" class="form-section">
+                        <div class="form-section">
+                            <label class="form-section-title">Informações Básicas</label>
+                            <div class="form-grid">
+                                <div class="form-group">
+                                    <label>Referência</label>
+                                    <input type="text" id="referencia" value="${this.editingLote.referencia}" placeholder="Ex: REF-001" required>
+                                </div>
+                                <div class="form-group">
+                                    <label>Tipo</label>
+                                    <select id="tipo">
+                                        <option value="superior" ${this.editingLote.tipo === 'superior' ? 'selected' : ''}>Superior</option>
+                                        <option value="inferior" ${this.editingLote.tipo === 'inferior' ? 'selected' : ''}>Inferior</option>
+                                        <option value="conjunto" ${this.editingLote.tipo === 'conjunto' ? 'selected' : ''}>Conjunto</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="form-section">
+                            <label class="form-section-title">Quantidades</label>
+                            <div class="form-grid">
+                                <div class="form-group">
+                                    <label>Qtd Superior</label>
+                                    <input type="number" id="qtdSuperior" value="${this.editingLote.qtdSuperior}" min="0">
+                                </div>
+                                <div class="form-group">
+                                    <label>Qtd Inferior</label>
+                                    <input type="number" id="qtdInferior" value="${this.editingLote.qtdInferior}" min="0">
+                                </div>
+                                <div class="form-group">
+                                    <label>Qtd Tamanho 6</label>
+                                    <input type="number" id="qtdTamanho6" value="${this.editingLote.qtdTamanho6}" min="0">
+                                </div>
+                                <div class="form-group">
+                                    <label>Qtd Tamanho 8</label>
+                                    <input type="number" id="qtdTamanho8" value="${this.editingLote.qtdTamanho8}" min="0">
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="form-section">
+                            <label class="form-section-title">Valores</label>
+                            <div class="form-grid">
+                                <div class="form-group">
+                                    <label>Valor Unitário Superior</label>
+                                    <input type="number" id="valorUnitarioSuperior" value="${this.editingLote.valorUnitarioSuperior}" min="0" step="0.01">
+                                </div>
+                                <div class="form-group">
+                                    <label>Valor Unitário Inferior</label>
+                                    <input type="number" id="valorUnitarioInferior" value="${this.editingLote.valorUnitarioInferior}" min="0" step="0.01">
+                                </div>
+                                <div class="form-group">
+                                    <label>Adicional Tamanho 6/8</label>
+                                    <input type="number" id="valorAdicionalTamanho6" value="${this.editingLote.valorAdicionalTamanho6}" min="0" step="0.01">
+                                </div>
+                                <div class="form-group">
+                                    <label>Status</label>
+                                    <select id="status">
+                                        <option value="aberto" ${this.editingLote.status === 'aberto' ? 'selected' : ''}>Aberto</option>
+                                        <option value="em_andamento" ${this.editingLote.status === 'em_andamento' ? 'selected' : ''}>Em Andamento</option>
+                                        <option value="finalizado" ${this.editingLote.status === 'finalizado' ? 'selected' : ''}>Finalizado</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="form-section">
+                            <label class="form-section-title">Valor Total</label>
+                            <div class="dashboard-card accent">
+                                <div class="dashboard-card-label">Valor a Receber</div>
+                                <div class="dashboard-card-value" id="valorTotalPreview">R$ ${this.editingLote.valorTotal.toFixed(2)}</div>
+                            </div>
+                        </div>
+                    </form>
+                    
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" onclick="ui.closeModal()">Cancelar</button>
+                        <button type="submit" form="loteForm" class="btn btn-primary">${lote ? 'Atualizar' : 'Criar'}</button>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        // Setup form events
+        const form = document.getElementById('loteForm');
+        const closeBtn = modalsContainer.querySelector('.modal-close');
+        
+        closeBtn.addEventListener('click', () => this.closeModal());
+        modalsContainer.addEventListener('click', (e) => {
+            if (e.target === modalsContainer) this.closeModal();
+        });
+        
+        // Auto-calculate value on input change
+        ['qtdSuperior', 'qtdInferior', 'qtdTamanho6', 'qtdTamanho8', 'valorUnitarioSuperior', 'valorUnitarioInferior', 'valorAdicionalTamanho6'].forEach(id => {
+            const input = document.getElementById(id);
+            if (input) input.addEventListener('change', () => this.updateValorPreview());
+        });
+        
+        form.addEventListener('submit', (e) => {
+            e.preventDefault();
+            this.saveLote();
+        });
+    }
+    
+    updateValorPreview() {
+        const qtdSuperior = parseFloat(document.getElementById('qtdSuperior').value) || 0;
+        const qtdInferior = parseFloat(document.getElementById('qtdInferior').value) || 0;
+        const qtdTamanho6 = parseFloat(document.getElementById('qtdTamanho6').value) || 0;
+        const qtdTamanho8 = parseFloat(document.getElementById('qtdTamanho8').value) || 0;
+        const valorSuperior = parseFloat(document.getElementById('valorUnitarioSuperior').value) || 0;
+        const valorInferior = parseFloat(document.getElementById('valorUnitarioInferior').value) || 0;
+        const valorAdicional = parseFloat(document.getElementById('valorAdicionalTamanho6').value) || 0;
+        
+        let total = (qtdSuperior * valorSuperior) + (qtdInferior * valorInferior);
+        if (qtdTamanho6 > 0) total += qtdTamanho6 * valorAdicional;
+        if (qtdTamanho8 > 0) total += qtdTamanho8 * valorAdicional;
+        
+        document.getElementById('valorTotalPreview').textContent = `R$ ${total.toFixed(2)}`;
+    }
+    
+    saveLote() {
+        const lote = this.editingLote;
+        lote.referencia = document.getElementById('referencia').value;
+        lote.tipo = document.getElementById('tipo').value;
+        lote.qtdSuperior = parseFloat(document.getElementById('qtdSuperior').value) || 0;
+        lote.qtdInferior = parseFloat(document.getElementById('qtdInferior').value) || 0;
+        lote.qtdTamanho6 = parseFloat(document.getElementById('qtdTamanho6').value) || 0;
+        lote.qtdTamanho8 = parseFloat(document.getElementById('qtdTamanho8').value) || 0;
+        lote.valorUnitarioSuperior = parseFloat(document.getElementById('valorUnitarioSuperior').value) || 0;
+        lote.valorUnitarioInferior = parseFloat(document.getElementById('valorUnitarioInferior').value) || 0;
+        lote.valorAdicionalTamanho6 = parseFloat(document.getElementById('valorAdicionalTamanho6').value) || 0;
+        lote.status = document.getElementById('status').value;
+        
+        if (lote.status === 'finalizado' && !lote.dataFim) {
+            lote.dataFim = new Date().toISOString();
+        }
+        
+        if (this.editingLote.id) {
+            this.loteService.editLote(lote);
+        } else {
+            this.loteService.addLote(lote);
+        }
+        
+        this.closeModal();
+        this.renderMain(document.getElementById('app'));
+    }
+    
+    finalizarLote(loteId) {
+        const lote = this.loteService.getLote(loteId);
+        if (lote) {
+            lote.status = 'finalizado';
+            lote.dataFim = new Date().toISOString();
+            this.loteService.editLote(lote);
+            this.renderMain(document.getElementById('app'));
+        }
+    }
+    
+    deleteLote(loteId) {
+        if (confirm('Deseja realmente deletar este lote?')) {
+            this.loteService.deleteLote(loteId);
+            this.renderMain(document.getElementById('app'));
+        }
+    }
+    
+    openSettingsModal() {
+        const modalsContainer = document.getElementById('modals');
+        const settings = this.loteService.settings;
+        
+        modalsContainer.innerHTML = `
+            <div class="modal">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h2 class="modal-title">Configurações</h2>
+                        <button type="button" class="modal-close">✕</button>
+                    </div>
+                    
+                    <form id="settingsForm" class="settings-modal">
+                        <div class="settings-section">
+                            <label class="settings-section-title">Logo e Nome</label>
+                            <div class="form-group">
+                                <label>Nome do App</label>
+                                <input type="text" id="appName" value="${settings.appName}">
+                            </div>
+                            <div class="form-group">
+                                <label>URL da Logo (opcional)</label>
+                                <input type="text" id="logoUrl" value="${settings.logo}" placeholder="icon-192.png">
+                            </div>
+                        </div>
+                        
+                        <div class="settings-section">
+                            <label class="settings-section-title">Metas e Contato</label>
+                            <div class="form-group">
+                                <label>Meta Mensal (R$)</label>
+                                <input type="number" id="monthlyGoal" value="${settings.monthlyGoal}" min="0" step="100">
+                            </div>
+                            <div class="form-group">
+                                <label>Número WhatsApp (opcional)</label>
+                                <input type="tel" id="whatsappNumber" value="${settings.whatsappNumber}" placeholder="11999999999">
+                            </div>
+                        </div>
+                    </form>
+                    
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" onclick="ui.closeModal()">Cancelar</button>
+                        <button type="submit" form="settingsForm" class="btn btn-primary">Salvar</button>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        const form = document.getElementById('settingsForm');
+        const closeBtn = modalsContainer.querySelector('.modal-close');
+        
+        closeBtn.addEventListener('click', () => this.closeModal());
+        modalsContainer.addEventListener('click', (e) => {
+            if (e.target === modalsContainer) this.closeModal();
+        });
+        
+        form.addEventListener('submit', (e) => {
+            e.preventDefault();
+            this.saveSettings();
+        });
+    }
+    
+    saveSettings() {
+        const newSettings = {
+            appName: document.getElementById('appName').value,
+            logo: document.getElementById('logoUrl').value || 'icon-192.png',
+            monthlyGoal: parseFloat(document.getElementById('monthlyGoal').value) || 3000,
+            whatsappNumber: document.getElementById('whatsappNumber').value
+        };
+        
+        this.loteService.updateSettings(newSettings);
+        this.closeModal();
+        this.renderMain(document.getElementById('app'));
+    }
+    
+    closeModal() {
+        document.getElementById('modals').innerHTML = '';
+    }
+    
+    logout() {
+        if (confirm('Deseja realmente sair? Seus dados serão mantidos.')) {
+            this.storage.clearUser();
+            this.user = null;
+            this.render();
+        }
+    }
+}
+
+// ===== INITIALIZATION =====
+let ui;
+document.addEventListener('DOMContentLoaded', () => {
+    ui = new UIController();
 });
-
-/* ============ Painel lateral ============ */
-const overlay = document.getElementById('overlay');
-const panel = document.getElementById('panelBloco');
-const panelTag = document.getElementById('panelTag');
-const panelTitulo = document.getElementById('panelTitulo');
-const panelDescricao = document.getElementById('panelDescricao');
-const passosLista = document.getElementById('passosLista');
-const conexoesLista = document.getElementById('conexoesLista');
-const conexoesEmptyHint = document.getElementById('conexoesEmptyHint');
-
-function getBloco(id){ return state.blocos.find(b=>b.id===id); }
-
-function openPanel(id){
-  activeBlocoId = id;
-  const bloco = getBloco(id);
-  if(!bloco) return;
-  panelTag.textContent = bloco.eyebrow || 'BLOCO';
-  panelTitulo.value = bloco.nome || '';
-  panelDescricao.value = bloco.descricao || '';
-  renderPassos(bloco);
-  renderConexoes(bloco);
-  overlay.classList.add('show');
-  panel.classList.add('show');
-}
-function closePanel(){
-  overlay.classList.remove('show');
-  panel.classList.remove('show');
-  activeBlocoId = null;
-  render();
-}
-document.getElementById('panelClose').addEventListener('click', closePanel);
-overlay.addEventListener('click', closePanel);
-
-panelTitulo.addEventListener('input', ()=>{
-  const bloco = getBloco(activeBlocoId); if(!bloco) return;
-  bloco.nome = panelTitulo.value; saveState();
-});
-panelDescricao.addEventListener('input', ()=>{
-  const bloco = getBloco(activeBlocoId); if(!bloco) return;
-  bloco.descricao = panelDescricao.value; saveState();
-});
-
-function renderPassos(bloco){
-  passosLista.innerHTML = '';
-  if(bloco.passos.length===0){
-    passosLista.innerHTML = '<p class="empty-hint">Nenhum passo ainda. Toque em "+ Passo".</p>';
-    return;
-  }
-  bloco.passos.forEach((p, idx)=>{
-    const card = document.createElement('div');
-    card.className = 'passo-card';
-    card.innerHTML = `
-      <span class="passo-num">PASSO ${String(idx+1).padStart(2,'0')}</span>
-      <p class="passo-texto">${escapeHtml(p.texto)}</p>
-      ${p.melhoria ? `<p class="passo-melhoria">${escapeHtml(p.melhoria)}</p>` : ''}
-      <div class="passo-actions">
-        <button data-act="edit" title="Editar">✎</button>
-        <button data-act="del" title="Excluir">🗑</button>
-      </div>
-    `;
-    card.querySelector('[data-act="edit"]').addEventListener('click', ()=> openPassoModal(bloco.id, p.id));
-    card.querySelector('[data-act="del"]').addEventListener('click', ()=>{
-      bloco.passos = bloco.passos.filter(x=>x.id!==p.id);
-      saveState(); renderPassos(bloco);
-    });
-    passosLista.appendChild(card);
-  });
-}
-
-document.getElementById('btnAddPasso').addEventListener('click', ()=>{
-  if(!activeBlocoId) return;
-  openPassoModal(activeBlocoId, null);
-});
-
-function renderConexoes(bloco){
-  conexoesLista.innerHTML = '';
-  if(bloco.conexoes.length===0){
-    conexoesEmptyHint.style.display = 'block';
-  }else{
-    conexoesEmptyHint.style.display = 'none';
-    bloco.conexoes.forEach(destId=>{
-      const dest = getBloco(destId);
-      if(!dest) return;
-      const chip = document.createElement('div');
-      chip.className = 'conexao-chip';
-      chip.innerHTML = `<span>→ ${escapeHtml(dest.nome||'Sem nome')}</span><button>×</button>`;
-      chip.querySelector('button').addEventListener('click', ()=>{
-        bloco.conexoes = bloco.conexoes.filter(x=>x!==destId);
-        saveState(); renderConexoes(bloco);
-      });
-      conexoesLista.appendChild(chip);
-    });
-  }
-}
-
-document.getElementById('btnExcluirBloco').addEventListener('click', ()=>{
-  if(!activeBlocoId) return;
-  if(!confirm('Excluir este bloco e suas conexões?')) return;
-  state.blocos = state.blocos.filter(b=>b.id!==activeBlocoId);
-  state.blocos.forEach(b=> b.conexoes = b.conexoes.filter(c=>c!==activeBlocoId));
-  saveState();
-  closePanel();
-});
-
-/* ---------- Modal conectar ---------- */
-const overlayConectar = document.getElementById('overlayConectar');
-const modalConectar = document.getElementById('modalConectar');
-const modalConectarLista = document.getElementById('modalConectarLista');
-
-document.getElementById('btnConectar').addEventListener('click', ()=>{
-  if(!activeBlocoId) return;
-  const bloco = getBloco(activeBlocoId);
-  modalConectarLista.innerHTML = '';
-  state.blocos.filter(b=>b.id!==activeBlocoId).forEach(b=>{
-    const item = document.createElement('div');
-    item.className = 'modal-select-item';
-    const already = bloco.conexoes.includes(b.id);
-    item.innerHTML = `<span>${escapeHtml(b.nome||'Sem nome')}</span>${already?'<span class="check">✓</span>':''}`;
-    item.addEventListener('click', ()=>{
-      if(bloco.conexoes.includes(b.id)){
-        bloco.conexoes = bloco.conexoes.filter(x=>x!==b.id);
-      }else{
-        bloco.conexoes.push(b.id);
-      }
-      saveState();
-      renderConexoes(bloco);
-      closeModalConectar();
-    });
-    modalConectarLista.appendChild(item);
-  });
-  overlayConectar.classList.add('show');
-  modalConectar.classList.add('show');
-});
-function closeModalConectar(){
-  overlayConectar.classList.remove('show');
-  modalConectar.classList.remove('show');
-}
-document.getElementById('modalConectarClose').addEventListener('click', closeModalConectar);
-overlayConectar.addEventListener('click', closeModalConectar);
-
-/* ---------- Modal passo ---------- */
-const overlayPasso = document.getElementById('overlayPasso');
-const modalPasso = document.getElementById('modalPasso');
-const modalPassoTitulo = document.getElementById('modalPassoTitulo');
-const passoDescricao = document.getElementById('passoDescricao');
-const passoMelhoria = document.getElementById('passoMelhoria');
-let editingPassoId = null;
-
-function openPassoModal(blocoId, passoId){
-  activeBlocoId = blocoId;
-  editingPassoId = passoId;
-  const bloco = getBloco(blocoId);
-  if(passoId){
-    const p = bloco.passos.find(x=>x.id===passoId);
-    modalPassoTitulo.textContent = 'Editar passo';
-    passoDescricao.value = p.texto || '';
-    passoMelhoria.value = p.melhoria || '';
-  }else{
-    modalPassoTitulo.textContent = 'Novo passo';
-    passoDescricao.value = '';
-    passoMelhoria.value = '';
-  }
-  overlayPasso.classList.add('show');
-  modalPasso.classList.add('show');
-  setTimeout(()=>passoDescricao.focus(), 50);
-}
-function closeModalPasso(){
-  overlayPasso.classList.remove('show');
-  modalPasso.classList.remove('show');
-}
-document.getElementById('modalPassoClose').addEventListener('click', closeModalPasso);
-overlayPasso.addEventListener('click', closeModalPasso);
-
-document.getElementById('btnSalvarPasso').addEventListener('click', ()=>{
-  const bloco = getBloco(activeBlocoId);
-  if(!bloco) return;
-  const texto = passoDescricao.value.trim();
-  if(!texto){ passoDescricao.focus(); return; }
-  if(editingPassoId){
-    const p = bloco.passos.find(x=>x.id===editingPassoId);
-    p.texto = texto;
-    p.melhoria = passoMelhoria.value.trim();
-  }else{
-    bloco.passos.push({ id: uid(), texto, melhoria: passoMelhoria.value.trim() });
-  }
-  saveState();
-  renderPassos(bloco);
-  render();
-  closeModalPasso();
-});
-
-/* ---------- init ---------- */
-render();
-
-// esconder dica depois de um tempo
-setTimeout(()=>{ hintBar.style.transition='opacity .6s'; hintBar.style.opacity='0'; }, 5000);
-
-// registrar service worker
-if('serviceWorker' in navigator){
-  window.addEventListener('load', ()=>{
-    navigator.serviceWorker.register('sw.js').catch(()=>{});
-  });
-}
