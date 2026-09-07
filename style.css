@@ -159,6 +159,18 @@ body {
     object-fit: cover;
 }
 
+.version-badge {
+    background: var(--accent);
+    color: var(--primary);
+    padding: 0.25rem 0.75rem;
+    border-radius: 0.5rem;
+    font-size: 0.625rem;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    box-shadow: 0 2px 8px rgba(251, 191, 36, 0.3);
+}
+
 .main-content {
     flex: 1;
     overflow-y: auto;

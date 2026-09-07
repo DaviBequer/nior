@@ -1,3 +1,6 @@
+// ===== VERSION =====
+const APP_VERSION = 'v1.0';
+
 // ===== MODELS =====
 class Lote {
     constructor(data = {}) {
@@ -133,6 +136,7 @@ class App {
                     <div class="header-logo">
                         <img src="icon-192.png" alt="Logo" onerror="this.src='icon-192.png'">
                     </div>
+                    <div class="version-badge">${APP_VERSION}</div>
                 </div>
                 <div class="main-content" id="mainContent"></div>
             </div>
