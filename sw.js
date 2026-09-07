@@ -1,5 +1,5 @@
-const CACHE_NAME = 'costura-app-v1';
-const URLS_TO_CACHE = [
+const CACHE_NAME = 'costura-v1';
+const FILES = [
     '/',
     '/index.html',
     '/app.js',
@@ -9,73 +9,42 @@ const URLS_TO_CACHE = [
     '/icon-512.png'
 ];
 
-// Install event
-self.addEventListener('install', (event) => {
+self.addEventListener('install', event => {
     event.waitUntil(
-        caches.open(CACHE_NAME).then((cache) => {
-            return cache.addAll(URLS_TO_CACHE).catch((err) => {
-                console.log('Erro ao cachear arquivos:', err);
-                // Continua mesmo se alguns arquivos não forem cacheados
-                return Promise.resolve();
-            });
+        caches.open(CACHE_NAME).then(cache => {
+            return cache.addAll(FILES).catch(() => null);
         })
     );
     self.skipWaiting();
 });
 
-// Activate event
-self.addEventListener('activate', (event) => {
+self.addEventListener('activate', event => {
     event.waitUntil(
-        caches.keys().then((cacheNames) => {
+        caches.keys().then(names => {
             return Promise.all(
-                cacheNames.map((cacheName) => {
-                    if (cacheName !== CACHE_NAME) {
-                        return caches.delete(cacheName);
-                    }
-                })
+                names.map(name => name !== CACHE_NAME ? caches.delete(name) : null)
             );
         })
     );
     self.clients.claim();
 });
 
-// Fetch event - Network first, fallback to cache
-self.addEventListener('fetch', (event) => {
-    // Skip non-GET requests
-    if (event.request.method !== 'GET') {
-        return;
-    }
-
+self.addEventListener('fetch', event => {
+    if (event.request.method !== 'GET') return;
+    
     event.respondWith(
         fetch(event.request)
-            .then((response) => {
-                // Cache successful responses
-                if (response && response.status === 200) {
-                    const responseToCache = response.clone();
-                    caches.open(CACHE_NAME).then((cache) => {
-                        cache.put(event.request, responseToCache);
-                    });
+            .then(response => {
+                if (response.ok) {
+                    const cache = caches.open(CACHE_NAME);
+                    cache.then(c => c.put(event.request, response.clone()));
                 }
                 return response;
             })
             .catch(() => {
-                // Fallback to cache on network error
-                return caches.match(event.request).then((response) => {
-                    return response || new Response('Offline - Recurso não disponível', {
-                        status: 503,
-                        statusText: 'Service Unavailable',
-                        headers: new Headers({
-                            'Content-Type': 'text/plain'
-                        })
-                    });
+                return caches.match(event.request).then(response => {
+                    return response || new Response('Offline', { status: 503 });
                 });
             })
     );
-});
-
-// Background sync for future use
-self.addEventListener('sync', (event) => {
-    if (event.tag === 'sync-lotes') {
-        // Placeholder for future sync implementation
-    }
 });

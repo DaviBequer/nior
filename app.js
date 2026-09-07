@@ -1,83 +1,60 @@
-// ===== MODELS & TYPES =====
+// ===== MODELS =====
 class Lote {
     constructor(data = {}) {
-        this.id = data.id || this.generateId();
-        this.referencia = data.referencia || '';
+        this.id = data.id || Date.now().toString(36) + Math.random().toString(36).substr(2);
         this.tipo = data.tipo || 'superior';
+        this.referencia = data.referencia || '';
+        this.letra = data.letra || '';
         this.tamanhos = data.tamanhos || [];
         
         this.qtdSuperior = data.qtdSuperior || 0;
+        this.valorSuperior = data.valorSuperior || 0;
         this.qtdInferior = data.qtdInferior || 0;
+        this.valorInferior = data.valorInferior || 0;
+        
         this.qtdTamanho6 = data.qtdTamanho6 || 0;
         this.qtdTamanho8 = data.qtdTamanho8 || 0;
+        this.cobraAdicional = data.cobraAdicional !== false;
+        this.valorAdicional = data.valorAdicional || 0;
         
-        this.valorPeca = data.valorPeca || 0;
-        this.valorUnitarioSuperior = data.valorUnitarioSuperior || data.valorPeca || 0;
-        this.valorUnitarioInferior = data.valorUnitarioInferior || data.valorPeca || 0;
-        this.valorAdicionalTamanho6 = data.valorAdicionalTamanho6 || 0;
-        this.cobraAdicionalTam6 = data.cobraAdicionalTam6 !== false;
-        
-        this.valorTotal = data.valorTotal || 0;
-        
-        this.dataInicio = data.dataInicio || new Date().toISOString();
-        this.dataFim = data.dataFim || null;
+        this.dataInicio = data.dataInicio || new Date().toISOString().split('T')[0];
+        this.dataFim = data.dataFim || '';
         this.status = data.status || 'aberto';
+        this.valorTotal = data.valorTotal || 0;
         this.foto = data.foto || null;
     }
     
-    generateId() {
-        return Date.now().toString(36) + Math.random().toString(36).substr(2);
-    }
-    
-    calcularValorTotal() {
+    calcularTotal() {
         let total = 0;
         
-        if (this.tipo === 'superior') {
-            total = this.qtdSuperior * this.valorUnitarioSuperior;
-        } else if (this.tipo === 'inferior') {
-            total = this.qtdInferior * this.valorUnitarioInferior;
-        } else if (this.tipo === 'conjunto') {
-            total = (this.qtdSuperior * this.valorUnitarioSuperior) + 
-                    (this.qtdInferior * this.valorUnitarioInferior);
+        if (this.tipo === 'superior' || this.tipo === 'conjunto') {
+            total += this.qtdSuperior * this.valorSuperior;
         }
         
-        if (this.qtdTamanho6 > 0 && this.cobraAdicionalTam6) {
-            total += this.qtdTamanho6 * this.valorAdicionalTamanho6;
+        if (this.tipo === 'inferior' || this.tipo === 'conjunto') {
+            total += this.qtdInferior * this.valorInferior;
         }
         
-        if (this.qtdTamanho8 > 0) {
-            total += this.qtdTamanho8 * (this.valorAdicionalTamanho6 || 0);
+        if (this.cobraAdicional) {
+            if (this.qtdTamanho6 > 0) total += this.qtdTamanho6 * this.valorAdicional;
+            if (this.qtdTamanho8 > 0) total += this.qtdTamanho8 * this.valorAdicional;
         }
         
-        this.valorTotal = total;
-        return total;
+        this.valorTotal = parseFloat(total.toFixed(2));
+        return this.valorTotal;
     }
 }
 
-class AppSettings {
-    constructor(data = {}) {
-        this.appName = data.appName || 'Gestão Costura';
-        this.logo = data.logo || 'icon-192.png';
-        this.monthlyGoal = data.monthlyGoal || 3000;
-        this.whatsappNumber = data.whatsappNumber || '';
-        this.manualRevenue = data.manualRevenue || {};
-    }
-}
-
-// ===== SERVICES =====
 class StorageService {
-    constructor() {
-        this.LOTES_KEY = 'atelie_lotes_data';
-        this.SETTINGS_KEY = 'atelie_settings';
-        this.USER_KEY = 'atelie_user';
-    }
+    LOTES_KEY = 'costura_lotes';
+    USER_KEY = 'costura_user';
+    SETTINGS_KEY = 'costura_settings';
     
     saveLotes(lotes) {
         try {
             localStorage.setItem(this.LOTES_KEY, JSON.stringify(lotes));
         } catch (e) {
             console.error('Erro ao salvar lotes', e);
-            alert('Erro: Memória cheia. Limpe dados antigos.');
         }
     }
     
@@ -86,26 +63,7 @@ class StorageService {
             const data = localStorage.getItem(this.LOTES_KEY);
             return data ? JSON.parse(data).map(l => new Lote(l)) : [];
         } catch (e) {
-            console.error('Erro ao carregar lotes', e);
             return [];
-        }
-    }
-    
-    saveSettings(settings) {
-        try {
-            localStorage.setItem(this.SETTINGS_KEY, JSON.stringify(settings));
-        } catch (e) {
-            console.error('Erro ao salvar configurações', e);
-        }
-    }
-    
-    loadSettings() {
-        try {
-            const data = localStorage.getItem(this.SETTINGS_KEY);
-            return data ? new AppSettings(JSON.parse(data)) : new AppSettings();
-        } catch (e) {
-            console.error('Erro ao carregar configurações', e);
-            return new AppSettings();
         }
     }
     
@@ -125,38 +83,209 @@ class StorageService {
     clearUser() {
         localStorage.removeItem(this.USER_KEY);
     }
+    
+    saveSettings(settings) {
+        localStorage.setItem(this.SETTINGS_KEY, JSON.stringify(settings));
+    }
+    
+    loadSettings() {
+        try {
+            const data = localStorage.getItem(this.SETTINGS_KEY);
+            return data ? JSON.parse(data) : { metaMensal: 9000 };
+        } catch (e) {
+            return { metaMensal: 9000 };
+        }
+    }
 }
 
-class LoteService {
-    constructor(storage) {
-        this.storage = storage;
-        this.lotes = storage.loadLotes();
-        this.settings = storage.loadSettings();
+class App {
+    constructor() {
+        this.storage = new StorageService();
+        this.user = this.storage.loadUser();
+        this.settings = this.storage.loadSettings();
+        this.lotes = this.storage.loadLotes();
         this.filter = 'este_mes';
+        this.currentEditingLote = null;
+        
+        this.render();
+        this.setupServiceWorker();
     }
     
-    addLote(lote) {
-        lote.calcularValorTotal();
-        this.lotes.unshift(lote);
-        this.storage.saveLotes(this.lotes);
-    }
-    
-    editLote(lote) {
-        lote.calcularValorTotal();
-        const index = this.lotes.findIndex(l => l.id === lote.id);
-        if (index !== -1) {
-            this.lotes[index] = lote;
-            this.storage.saveLotes(this.lotes);
+    setupServiceWorker() {
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('sw.js').catch(() => {});
         }
     }
     
-    deleteLote(id) {
-        this.lotes = this.lotes.filter(l => l.id !== id);
-        this.storage.saveLotes(this.lotes);
+    render() {
+        const app = document.getElementById('app');
+        if (!this.user) {
+            this.renderLogin(app);
+        } else {
+            this.renderMain(app);
+        }
     }
     
-    getLote(id) {
-        return this.lotes.find(l => l.id === id);
+    renderLogin(container) {
+        container.innerHTML = `
+            <div class="login-screen">
+                <div class="login-logo">
+                    <img src="icon-192.png" alt="Logo" onerror="this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22%3E%3Ccircle cx=%2250%22 cy=%2250%22 r=%2250%22 fill=%22%231e3a8a%22/%3E%3C/svg%3E'">
+                </div>
+                <h1 class="login-title">Gestão Costura</h1>
+                <form class="login-form" id="loginForm">
+                    <div class="form-group">
+                        <label>Nome</label>
+                        <input type="text" placeholder="Seu nome" required autofocus>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Entrar</button>
+                </form>
+            </div>
+        `;
+        
+        document.getElementById('loginForm').addEventListener('submit', (e) => {
+            e.preventDefault();
+            const name = e.target.querySelector('input').value.trim();
+            if (name) {
+                this.user = { name, date: new Date().toISOString() };
+                this.storage.saveUser(this.user);
+                this.render();
+            }
+        });
+    }
+    
+    renderMain(container) {
+        container.innerHTML = `
+            <div class="main-screen">
+                <div class="header">
+                    <div class="header-logo">
+                        <img src="icon-192.png" alt="Logo" onerror="this.src='icon-192.png'">
+                    </div>
+                </div>
+                <div class="main-content" id="mainContent"></div>
+            </div>
+        `;
+        
+        this.renderDashboard();
+    }
+    
+    renderDashboard() {
+        const content = document.getElementById('mainContent');
+        const ganhosFiltrado = this.getTotalGanhosFiltrado();
+        const meta = this.settings.metaMensal;
+        const percentual = Math.round((ganhosFiltrado / meta) * 100);
+        const falta = Math.max(0, meta - ganhosFiltrado);
+        
+        content.innerHTML = `
+            ${this.renderMetaCard(ganhosFiltrado, meta, percentual, falta)}
+            ${this.renderPerformanceCard()}
+            ${this.renderFiltersCard()}
+            ${this.renderLotesList()}
+            <div style="height: 100px;"></div>
+        `;
+        
+        // Attach event listeners
+        this.attachDashboardEvents();
+    }
+    
+    renderMetaCard(ganhos, meta, percentual, falta) {
+        return `
+            <div class="meta-card">
+                <div class="meta-header">
+                    <div>
+                        <div class="meta-label">META MENSAL</div>
+                    </div>
+                    <div class="meta-icons">
+                        <div class="meta-icon">📊</div>
+                        <div class="meta-icon" onclick="app.showMetaModal()">⚙️</div>
+                    </div>
+                </div>
+                <div class="meta-value">R$ ${ganhos.toFixed(2)}</div>
+                <div class="meta-info">
+                    <span>${percentual}% CONCLUÍDO</span>
+                    <span>FALTAM R$ ${falta.toFixed(2)}</span>
+                </div>
+                <div class="progress-bar">
+                    <div class="progress-fill" style="width: ${percentual}%"></div>
+                </div>
+            </div>
+        `;
+    }
+    
+    renderPerformanceCard() {
+        return `
+            <div class="performance-card">
+                <div class="performance-title">DESEMPENHO SEMANAL</div>
+                <div class="performance-items">
+                    <div class="performance-item">
+                        <div class="performance-item-label">S1</div>
+                        <div class="performance-item-value">R$ 0</div>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+    
+    renderFiltersCard() {
+        const filters = ['Em andamento', 'Este mês', 'Mês passado', 'Todos'];
+        let html = '<div class="filters">';
+        
+        filters.forEach(f => {
+            const key = f.toLowerCase().replace(/\s/g, '_');
+            const active = this.filter === key ? 'active' : '';
+            html += `<button class="filter-btn ${active}" onclick="app.setFilter('${key}')">${f}</button>`;
+        });
+        
+        html += '<button class="filter-btn" onclick="app.showReport()">📋 Relatório</button>';
+        html += '</div>';
+        
+        return html;
+    }
+    
+    renderLotesList() {
+        const lotes = this.getFilteredLotes();
+        
+        if (lotes.length === 0) {
+            return `
+                <div style="text-align: center; padding: 2rem; color: var(--gray-text);">
+                    <div style="font-size: 2rem; margin-bottom: 1rem;">📦</div>
+                    <div>NENHUM LOTE ENCONTRADO</div>
+                    <div style="font-size: 0.875rem; margin-top: 0.5rem;">Ajuste os filtros ou crie um novo.</div>
+                </div>
+            `;
+        }
+        
+        let html = '<div class="lote-list">';
+        lotes.forEach(lote => {
+            html += `
+                <div class="lote-item" onclick="app.editLote('${lote.id}')">
+                    <div class="lote-header">
+                        <div class="lote-ref">${lote.referencia}</div>
+                        <span class="lote-status ${lote.status}">${lote.status === 'finalizado' ? '✓' : '○'} ${lote.status}</span>
+                    </div>
+                    <div style="font-size: 0.875rem; color: var(--gray-text);">
+                        ${lote.tipo} • R$ ${lote.valorTotal.toFixed(2)}
+                    </div>
+                </div>
+            `;
+        });
+        html += '</div>';
+        
+        return html + `
+            <div style="position: fixed; bottom: 0; left: 0; right: 0; padding: 1rem; background: var(--white); border-top: 1px solid var(--gray-border); display: flex; gap: 0.75rem;">
+                <button class="btn-new-lote" onclick="app.newLote()">➕ NOVO LOTE</button>
+                <button class="btn-new-lote" style="background: var(--accent); color: var(--primary);" onclick="app.logout()">SAIR</button>
+            </div>
+        `;
+    }
+    
+    attachDashboardEvents() {
+        // Events attached via onclick handlers
+    }
+    
+    getTotalGanhosFiltrado() {
+        const lotes = this.getFilteredLotes().filter(l => l.status === 'finalizado');
+        return lotes.reduce((sum, l) => sum + l.valorTotal, 0);
     }
     
     getFilteredLotes() {
@@ -168,546 +297,386 @@ class LoteService {
             }
             
             if (this.filter === 'este_mes') {
-                const lotDate = new Date(l.dataFim || l.dataInicio);
-                return lotDate.getMonth() === now.getMonth() && 
-                       lotDate.getFullYear() === now.getFullYear();
+                const loteDate = new Date(l.dataFim || l.dataInicio);
+                return loteDate.getMonth() === now.getMonth() && 
+                       loteDate.getFullYear() === now.getFullYear();
             }
             
             if (this.filter === 'mes_passado') {
-                const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-                const lotDate = new Date(l.dataFim || l.dataInicio);
-                return lotDate.getMonth() === lastMonth.getMonth() && 
-                       lotDate.getFullYear() === lastMonth.getFullYear();
+                const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1);
+                const loteDate = new Date(l.dataFim || l.dataInicio);
+                return loteDate.getMonth() === lastMonth.getMonth() && 
+                       loteDate.getFullYear() === lastMonth.getFullYear();
             }
             
             return true;
         });
     }
     
-    getTotalGanhos() {
-        return this.getFilteredLotes()
-            .filter(l => l.status === 'finalizado')
-            .reduce((sum, l) => sum + l.valorTotal, 0);
-    }
-    
-    getLotesEmAndamento() {
-        return this.lotes.filter(l => l.status === 'em_andamento').length;
-    }
-    
-    getLotesFinalizados() {
-        return this.lotes.filter(l => l.status === 'finalizado').length;
-    }
-    
-    getMonthData(year, month) {
-        return this.lotes.filter(l => {
-            if (l.status !== 'finalizado') return false;
-            const date = new Date(l.dataFim || l.dataInicio);
-            return date.getFullYear() === year && date.getMonth() === month;
-        }).reduce((sum, l) => sum + l.valorTotal, 0);
-    }
-    
-    updateSettings(settings) {
-        this.settings = new AppSettings(settings);
-        this.storage.saveSettings(this.settings);
-    }
-}
-
-class UIController {
-    constructor() {
-        this.storage = new StorageService();
-        this.user = this.storage.loadUser();
-        this.loteService = new LoteService(this.storage);
-        this.showFormModal = false;
-        this.showSettingsModal = false;
-        this.showReportModal = false;
-        this.editingLote = null;
-        
-        this.render();
-        this.setupServiceWorker();
-    }
-    
-    setupServiceWorker() {
-        if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('sw.js').catch(err => {
-                console.log('SW registration failed:', err);
-            });
-        }
-    }
-    
-    hideSplash() {
-        setTimeout(() => {
-            const splash = document.getElementById('splash');
-            if (splash) {
-                splash.classList.add('hidden');
-            }
-        }, 2200);
-    }
-    
-    render() {
-        const app = document.getElementById('app');
-        
-        if (!this.user) {
-            this.renderLogin(app);
-        } else {
-            this.renderMain(app);
-        }
-        
-        this.hideSplash();
-    }
-    
-    renderLogin(container) {
-        container.innerHTML = `
-            <div class="login-screen">
-                <div class="login-content">
-                    <div class="login-logo">
-                        <img src="${this.loteService.settings.logo}" alt="Logo">
-                    </div>
-                    <h1 class="login-title">Gestão Costura</h1>
-                    <p class="login-subtitle">Controle seus lotes e ganhos</p>
-                </div>
-                
-                <form id="loginForm" class="login-form">
-                    <div class="form-group">
-                        <label>Nome</label>
-                        <input type="text" id="loginName" placeholder="Seu nome" required>
-                    </div>
-                    
-                    <button type="submit" class="btn btn-primary" style="width: 100%;">
-                        Entrar
-                    </button>
-                </form>
-                
-                <p class="login-footer">Seus dados são salvos localmente no dispositivo</p>
-            </div>
-        `;
-        
-        document.getElementById('loginForm').addEventListener('submit', (e) => {
-            e.preventDefault();
-            const name = document.getElementById('loginName').value.trim();
-            if (name) {
-                this.user = { name, loginDate: new Date().toISOString() };
-                this.storage.saveUser(this.user);
-                this.render();
-            }
-        });
-    }
-    
-    renderMain(container) {
-        container.innerHTML = `
-            <div class="main-screen">
-                <header class="header">
-                    <div class="header-logo">
-                        <img src="${this.loteService.settings.logo}" alt="Logo">
-                    </div>
-                </header>
-                
-                <main class="main-content">
-                    <div id="dashboardContainer"></div>
-                    <div id="filterContainer"></div>
-                    <div id="loteListContainer"></div>
-                    <div style="height: 120px;"></div>
-                </main>
-            </div>
-            
-            <div class="bottom-actions">
-                <button id="btnNewLote" class="btn-new-lote">
-                    <span>➕</span>
-                    <span>Novo Lote</span>
-                </button>
-                <button id="btnLogout" class="btn btn-secondary" style="width: 100%;">
-                    Sair
-                </button>
-            </div>
-        `;
-        
+    setFilter(filter) {
+        this.filter = filter;
         this.renderDashboard();
-        this.renderFilters();
-        this.renderLoteList();
-        
-        document.getElementById('btnNewLote').addEventListener('click', () => this.openFormModal(null));
-        document.getElementById('btnLogout').addEventListener('click', () => this.logout());
-        document.querySelector('.header-logo').addEventListener('click', () => this.openSettingsModal());
     }
     
-    renderDashboard() {
-        const container = document.getElementById('dashboardContainer');
-        const totalGanhos = this.loteService.getTotalGanhos();
-        const emAndamento = this.loteService.getLotesEmAndamento();
-        const finalizados = this.loteService.getLotesFinalizados();
-        const meta = this.loteService.settings.monthlyGoal;
-        const percentualMeta = Math.round((totalGanhos / meta) * 100);
-        
-        container.innerHTML = `
-            <div class="dashboard">
-                <div class="dashboard-card">
-                    <div class="dashboard-card-label">Ganhos do Mês</div>
-                    <div class="dashboard-card-value">R$ ${totalGanhos.toFixed(2)}</div>
-                    <div class="dashboard-card-footer">${percentualMeta}% da meta</div>
-                </div>
-                
-                <div class="dashboard-card accent">
-                    <div class="dashboard-card-label">Meta Mensal</div>
-                    <div class="dashboard-card-value">R$ ${meta.toFixed(2)}</div>
-                    <div class="dashboard-card-footer">${finalizados} finalizados</div>
-                </div>
-                
-                <div class="dashboard-card">
-                    <div class="dashboard-card-label">Em Andamento</div>
-                    <div class="dashboard-card-value">${emAndamento}</div>
-                    <div class="dashboard-card-footer">lotes ativos</div>
+    newLote() {
+        const app = document.getElementById('app');
+        app.innerHTML = `
+            <div class="modal-overlay" onclick="event.target === this && app.history.back()">
+                <div class="modal">
+                    <div class="modal-header">
+                        <div class="modal-title">NOVO LOTE</div>
+                        <button class="modal-close" onclick="window.history.back()">✕</button>
+                    </div>
+                    
+                    <div class="type-selection">
+                        <button class="type-card" onclick="app.selectType('superior')" style="grid-column: 1 / -1;">
+                            <div class="type-card-icon">👕</div>
+                            <div class="type-card-label">SUPERIOR</div>
+                        </button>
+                        <button class="type-card" onclick="app.selectType('inferior')">
+                            <div class="type-card-icon">👖</div>
+                            <div class="type-card-label">INFERIOR</div>
+                        </button>
+                        <button class="type-card" onclick="app.selectType('conjunto')">
+                            <div class="type-card-icon">🧥</div>
+                            <div class="type-card-label">CONJUNTO</div>
+                        </button>
+                    </div>
                 </div>
             </div>
         `;
     }
     
-    renderFilters() {
-        const container = document.getElementById('filterContainer');
-        const filters = [
-            { value: 'este_mes', label: 'Este Mês' },
-            { value: 'mes_passado', label: 'Mês Passado' },
-            { value: 'em_andamento', label: 'Em Andamento' },
-            { value: 'todos', label: 'Todos' }
-        ];
-        
-        let html = '<div class="filters">';
-        filters.forEach(f => {
-            const active = this.loteService.filter === f.value ? 'active' : '';
-            html += `<button class="filter-btn ${active}" data-filter="${f.value}">${f.label}</button>`;
-        });
-        html += '</div>';
-        
-        container.innerHTML = html;
-        
-        container.querySelectorAll('.filter-btn').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                this.loteService.filter = e.target.dataset.filter;
-                this.renderFilters();
-                this.renderLoteList();
-                this.renderDashboard();
-            });
-        });
+    selectType(tipo) {
+        this.currentEditingLote = new Lote({ tipo });
+        this.showLoteForm();
     }
     
-    renderLoteList() {
-        const container = document.getElementById('loteListContainer');
-        const lotes = this.loteService.getFilteredLotes();
-        
-        if (lotes.length === 0) {
-            container.innerHTML = '<p style="text-align: center; color: var(--gray-text); padding: 2rem;">Nenhum lote encontrado</p>';
-            return;
+    editLote(id) {
+        this.currentEditingLote = this.lotes.find(l => l.id === id);
+        if (this.currentEditingLote) {
+            this.showLoteForm();
         }
+    }
+    
+    showLoteForm() {
+        const lote = this.currentEditingLote;
+        const isNew = !this.lotes.find(l => l.id === lote.id);
         
-        let html = '<div class="lote-list">';
-        lotes.forEach(lote => {
-            const statusClass = lote.status;
-            const statusLabel = {
-                'aberto': 'Aberto',
-                'em_andamento': 'Em Andamento',
-                'finalizado': 'Finalizado'
-            }[lote.status] || lote.status;
-            
+        const app = document.getElementById('app');
+        app.innerHTML = `
+            <div class="modal-overlay">
+                <div class="modal">
+                    <div class="modal-header">
+                        <button class="btn-secondary" style="padding: 0.5rem 1rem;" onclick="window.history.back()">←</button>
+                        <div class="modal-title">${lote.tipo.toUpperCase()}</div>
+                        <button class="modal-close" onclick="window.history.back()">✕</button>
+                    </div>
+                    
+                    <div id="loteFormContainer"></div>
+                </div>
+            </div>
+        `;
+        
+        this.renderLoteFormContent();
+    }
+    
+    renderLoteFormContent() {
+        const lote = this.currentEditingLote;
+        const container = document.getElementById('loteFormContainer');
+        
+        let html = `
+            <form id="loteForm" onsubmit="app.saveLote(event)">
+                <!-- REFERÊNCIA -->
+                <div class="form-section">
+                    <div class="form-section-title">REFERÊNCIA</div>
+                    <div class="form-row two-col">
+                        <div class="form-field">
+                            <label>Número</label>
+                            <input type="text" placeholder="0000" value="${lote.referencia}" onchange="this.closest('form').referencia = this.value">
+                        </div>
+                        <div class="form-field">
+                            <label>Letra</label>
+                            <input type="text" placeholder="A" value="${lote.letra}" maxlength="1" onchange="this.closest('form').letra = this.value">
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- TAMANHOS -->
+                <div class="form-section">
+                    <div class="form-section-title">TAMANHOS</div>
+                    <div class="size-buttons" id="sizeButtons">
+        `;
+        
+        [2, 3, 4, 6, 8].forEach(size => {
+            const active = lote.tamanhos.includes(size) ? 'active' : '';
+            html += `<button type="button" class="size-btn ${active}" onclick="app.toggleSize(${size})">${size}</button>`;
+        });
+        
+        html += `</div></div>`;
+        
+        // Adicional para tamanho 6/8
+        html += `
+            <div class="form-section">
+                <div class="toggle-container">
+                    <div class="toggle-label">
+                        <div class="toggle-label-main">ADICIONAL TAM 6/8</div>
+                        <div class="toggle-label-sub">Cobrar + R$ 0.20 por peça?</div>
+                    </div>
+                    <div class="toggle ${lote.cobraAdicional ? 'active' : ''}" onclick="app.toggleAdicional()">
+                        <div class="toggle-dot"></div>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        // Quantidade e Valor
+        if (lote.tipo === 'superior') {
             html += `
-                <div class="lote-item">
-                    <div class="lote-header">
-                        <div class="lote-reference">${lote.referencia}</div>
-                        <span class="lote-status ${statusClass}">${statusLabel}</span>
+                <div class="form-section">
+                    <div class="qty-value-container">
+                        <div class="qty-value-item">
+                            <label>QUANTIDADE</label>
+                            <input type="number" value="${lote.qtdSuperior}" onchange="app.currentEditingLote.qtdSuperior = parseFloat(this.value); app.updateTotal();">
+                        </div>
+                        <div class="qty-value-item">
+                            <label>VALOR</label>
+                            <input type="number" step="0.01" value="${lote.valorSuperior}" placeholder="R$ 0.00" onchange="app.currentEditingLote.valorSuperior = parseFloat(this.value); app.updateTotal();">
+                        </div>
                     </div>
                     
-                    <div class="lote-details">
-                        <div class="lote-detail">
-                            <span class="lote-detail-label">Tipo</span>
-                            <span class="lote-detail-value">${lote.tipo.charAt(0).toUpperCase() + lote.tipo.slice(1)}</span>
+                    <div style="margin-top: 1rem; display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                        <div class="form-field">
+                            <label>QTD TAMANHO 6:</label>
+                            <input type="number" value="${lote.qtdTamanho6}" onchange="app.currentEditingLote.qtdTamanho6 = parseFloat(this.value); app.updateTotal();">
                         </div>
-                        <div class="lote-detail">
-                            <span class="lote-detail-label">Valor Total</span>
-                            <span class="lote-detail-value">R$ ${lote.valorTotal.toFixed(2)}</span>
+                        <div class="form-field">
+                            <label>QTD TAMANHO 8:</label>
+                            <input type="number" value="${lote.qtdTamanho8}" onchange="app.currentEditingLote.qtdTamanho8 = parseFloat(this.value); app.updateTotal();">
                         </div>
-                        <div class="lote-detail">
-                            <span class="lote-detail-label">Data Início</span>
-                            <span class="lote-detail-value">${new Date(lote.dataInicio).toLocaleDateString('pt-BR')}</span>
-                        </div>
-                        ${lote.dataFim ? `
-                            <div class="lote-detail">
-                                <span class="lote-detail-label">Data Fim</span>
-                                <span class="lote-detail-value">${new Date(lote.dataFim).toLocaleDateString('pt-BR')}</span>
-                            </div>
-                        ` : ''}
-                    </div>
-                    
-                    <div class="lote-actions">
-                        <button class="btn btn-secondary btn-sm" onclick="ui.openFormModal('${lote.id}')">Editar</button>
-                        ${lote.status !== 'finalizado' ? `
-                            <button class="btn btn-primary btn-sm" onclick="ui.finalizarLote('${lote.id}')">Finalizar</button>
-                        ` : ''}
-                        <button class="btn btn-secondary btn-sm" onclick="ui.deleteLote('${lote.id}')">Deletar</button>
                     </div>
                 </div>
             `;
-        });
-        html += '</div>';
+        } else if (lote.tipo === 'inferior') {
+            html += `
+                <div class="form-section">
+                    <div class="qty-value-container">
+                        <div class="qty-value-item">
+                            <label>QUANTIDADE</label>
+                            <input type="number" value="${lote.qtdInferior}" onchange="app.currentEditingLote.qtdInferior = parseFloat(this.value); app.updateTotal();">
+                        </div>
+                        <div class="qty-value-item">
+                            <label>VALOR</label>
+                            <input type="number" step="0.01" value="${lote.valorInferior}" placeholder="R$ 0.00" onchange="app.currentEditingLote.valorInferior = parseFloat(this.value); app.updateTotal();">
+                        </div>
+                    </div>
+                    
+                    <div style="margin-top: 1rem; display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                        <div class="form-field">
+                            <label>QTD TAMANHO 6:</label>
+                            <input type="number" value="${lote.qtdTamanho6}" onchange="app.currentEditingLote.qtdTamanho6 = parseFloat(this.value); app.updateTotal();">
+                        </div>
+                        <div class="form-field">
+                            <label>QTD TAMANHO 8:</label>
+                            <input type="number" value="${lote.qtdTamanho8}" onchange="app.currentEditingLote.qtdTamanho8 = parseFloat(this.value); app.updateTotal();">
+                        </div>
+                    </div>
+                </div>
+            `;
+        } else if (lote.tipo === 'conjunto') {
+            html += `
+                <div class="form-section">
+                    <div style="background: var(--gray-light); border-radius: 1rem; padding: 1rem; display: flex; gap: 1rem;">
+                        <div style="flex: 1; text-align: center; border-right: 1px solid var(--gray-border); padding-right: 1rem;">
+                            <div style="color: var(--primary); font-weight: 700; margin-bottom: 0.75rem;">👕 SUPERIOR</div>
+                            <input type="number" value="${lote.qtdSuperior}" placeholder="Qtd" style="width: 100%; padding: 0.5rem; margin-bottom: 0.5rem; border: 2px solid var(--gray-border); border-radius: 0.5rem;" onchange="app.currentEditingLote.qtdSuperior = parseFloat(this.value); app.updateTotal();">
+                            <input type="number" step="0.01" value="${lote.valorSuperior}" placeholder="R$ 0.00" style="width: 100%; padding: 0.5rem; border: 2px solid var(--gray-border); border-radius: 0.5rem;" onchange="app.currentEditingLote.valorSuperior = parseFloat(this.value); app.updateTotal();">
+                        </div>
+                        <div style="flex: 1; text-align: center;">
+                            <div style="color: var(--primary); font-weight: 700; margin-bottom: 0.75rem;">👖 INFERIOR</div>
+                            <input type="number" value="${lote.qtdInferior}" placeholder="Qtd" style="width: 100%; padding: 0.5rem; margin-bottom: 0.5rem; border: 2px solid var(--gray-border); border-radius: 0.5rem;" onchange="app.currentEditingLote.qtdInferior = parseFloat(this.value); app.updateTotal();">
+                            <input type="number" step="0.01" value="${lote.valorInferior}" placeholder="R$ 0.00" style="width: 100%; padding: 0.5rem; border: 2px solid var(--gray-border); border-radius: 0.5rem;" onchange="app.currentEditingLote.valorInferior = parseFloat(this.value); app.updateTotal();">
+                        </div>
+                    </div>
+                    
+                    <div style="margin-top: 1rem; display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                        <div class="form-field">
+                            <label>QTD TAMANHO 6:</label>
+                            <input type="number" value="${lote.qtdTamanho6}" onchange="app.currentEditingLote.qtdTamanho6 = parseFloat(this.value); app.updateTotal();">
+                        </div>
+                        <div class="form-field">
+                            <label>QTD TAMANHO 8:</label>
+                            <input type="number" value="${lote.qtdTamanho8}" onchange="app.currentEditingLote.qtdTamanho8 = parseFloat(this.value); app.updateTotal();">
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+        
+        html += `
+                <!-- FOTO -->
+                <div class="form-section">
+                    <div class="form-section-title">FOTO DE REFERÊNCIA</div>
+                    <div style="border: 2px dashed var(--gray-border); border-radius: 1rem; padding: 2rem; text-align: center; color: var(--gray-text);">
+                        📷 TIRAR FOTO
+                    </div>
+                </div>
+                
+                <!-- TOTAL -->
+                <div class="form-section">
+                    <div class="total-preview" id="totalPreview">
+                        <div class="total-preview-label">VALOR TOTAL PREVISTO</div>
+                        <div class="total-preview-value">R$ ${lote.valorTotal.toFixed(2)}</div>
+                    </div>
+                </div>
+                
+                <!-- DATAS -->
+                <div class="form-section">
+                    <div style="text-align: center; cursor: pointer; color: var(--primary); font-size: 0.875rem; font-weight: 600;">
+                        Ocultar Datas ▲
+                    </div>
+                    <div class="form-row two-col">
+                        <div class="form-field">
+                            <label>INÍCIO</label>
+                            <input type="text" value="${lote.dataInicio}" placeholder="Hoje">
+                        </div>
+                        <div class="form-field">
+                            <label>FIM</label>
+                            <input type="text" value="${lote.dataFim || '--/--'}" placeholder="--/--">
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- ACTIONS -->
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-secondary" onclick="window.history.back()">CANCELAR</button>
+                    <button type="submit" class="btn btn-primary">✓ SALVAR LOTE</button>
+                </div>
+            </form>
+        `;
         
         container.innerHTML = html;
     }
     
-    openFormModal(loteId) {
-        const lote = loteId ? this.loteService.getLote(loteId) : null;
-        this.editingLote = lote || new Lote();
-        
-        const modalsContainer = document.getElementById('modals');
-        const isFinalizando = lote && lote.status === 'em_andamento';
-        
-        modalsContainer.innerHTML = `
-            <div class="modal">
-                <div class="modal-content">
-                    <div class="modal-header">
-                        <h2 class="modal-title">${lote ? 'Editar Lote' : 'Novo Lote'}</h2>
-                        <button type="button" class="modal-close">✕</button>
-                    </div>
-                    
-                    <form id="loteForm" class="form-section">
-                        <div class="form-section">
-                            <label class="form-section-title">Informações Básicas</label>
-                            <div class="form-grid">
-                                <div class="form-group">
-                                    <label>Referência</label>
-                                    <input type="text" id="referencia" value="${this.editingLote.referencia}" placeholder="Ex: REF-001" required>
-                                </div>
-                                <div class="form-group">
-                                    <label>Tipo</label>
-                                    <select id="tipo">
-                                        <option value="superior" ${this.editingLote.tipo === 'superior' ? 'selected' : ''}>Superior</option>
-                                        <option value="inferior" ${this.editingLote.tipo === 'inferior' ? 'selected' : ''}>Inferior</option>
-                                        <option value="conjunto" ${this.editingLote.tipo === 'conjunto' ? 'selected' : ''}>Conjunto</option>
-                                    </select>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <div class="form-section">
-                            <label class="form-section-title">Quantidades</label>
-                            <div class="form-grid">
-                                <div class="form-group">
-                                    <label>Qtd Superior</label>
-                                    <input type="number" id="qtdSuperior" value="${this.editingLote.qtdSuperior}" min="0">
-                                </div>
-                                <div class="form-group">
-                                    <label>Qtd Inferior</label>
-                                    <input type="number" id="qtdInferior" value="${this.editingLote.qtdInferior}" min="0">
-                                </div>
-                                <div class="form-group">
-                                    <label>Qtd Tamanho 6</label>
-                                    <input type="number" id="qtdTamanho6" value="${this.editingLote.qtdTamanho6}" min="0">
-                                </div>
-                                <div class="form-group">
-                                    <label>Qtd Tamanho 8</label>
-                                    <input type="number" id="qtdTamanho8" value="${this.editingLote.qtdTamanho8}" min="0">
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <div class="form-section">
-                            <label class="form-section-title">Valores</label>
-                            <div class="form-grid">
-                                <div class="form-group">
-                                    <label>Valor Unitário Superior</label>
-                                    <input type="number" id="valorUnitarioSuperior" value="${this.editingLote.valorUnitarioSuperior}" min="0" step="0.01">
-                                </div>
-                                <div class="form-group">
-                                    <label>Valor Unitário Inferior</label>
-                                    <input type="number" id="valorUnitarioInferior" value="${this.editingLote.valorUnitarioInferior}" min="0" step="0.01">
-                                </div>
-                                <div class="form-group">
-                                    <label>Adicional Tamanho 6/8</label>
-                                    <input type="number" id="valorAdicionalTamanho6" value="${this.editingLote.valorAdicionalTamanho6}" min="0" step="0.01">
-                                </div>
-                                <div class="form-group">
-                                    <label>Status</label>
-                                    <select id="status">
-                                        <option value="aberto" ${this.editingLote.status === 'aberto' ? 'selected' : ''}>Aberto</option>
-                                        <option value="em_andamento" ${this.editingLote.status === 'em_andamento' ? 'selected' : ''}>Em Andamento</option>
-                                        <option value="finalizado" ${this.editingLote.status === 'finalizado' ? 'selected' : ''}>Finalizado</option>
-                                    </select>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <div class="form-section">
-                            <label class="form-section-title">Valor Total</label>
-                            <div class="dashboard-card accent">
-                                <div class="dashboard-card-label">Valor a Receber</div>
-                                <div class="dashboard-card-value" id="valorTotalPreview">R$ ${this.editingLote.valorTotal.toFixed(2)}</div>
-                            </div>
-                        </div>
-                    </form>
-                    
-                    <div class="modal-footer">
-                        <button type="button" class="btn btn-secondary" onclick="ui.closeModal()">Cancelar</button>
-                        <button type="submit" form="loteForm" class="btn btn-primary">${lote ? 'Atualizar' : 'Criar'}</button>
-                    </div>
-                </div>
-            </div>
-        `;
-        
-        // Setup form events
-        const form = document.getElementById('loteForm');
-        const closeBtn = modalsContainer.querySelector('.modal-close');
-        
-        closeBtn.addEventListener('click', () => this.closeModal());
-        modalsContainer.addEventListener('click', (e) => {
-            if (e.target === modalsContainer) this.closeModal();
-        });
-        
-        // Auto-calculate value on input change
-        ['qtdSuperior', 'qtdInferior', 'qtdTamanho6', 'qtdTamanho8', 'valorUnitarioSuperior', 'valorUnitarioInferior', 'valorAdicionalTamanho6'].forEach(id => {
-            const input = document.getElementById(id);
-            if (input) input.addEventListener('change', () => this.updateValorPreview());
-        });
-        
-        form.addEventListener('submit', (e) => {
-            e.preventDefault();
-            this.saveLote();
-        });
-    }
-    
-    updateValorPreview() {
-        const qtdSuperior = parseFloat(document.getElementById('qtdSuperior').value) || 0;
-        const qtdInferior = parseFloat(document.getElementById('qtdInferior').value) || 0;
-        const qtdTamanho6 = parseFloat(document.getElementById('qtdTamanho6').value) || 0;
-        const qtdTamanho8 = parseFloat(document.getElementById('qtdTamanho8').value) || 0;
-        const valorSuperior = parseFloat(document.getElementById('valorUnitarioSuperior').value) || 0;
-        const valorInferior = parseFloat(document.getElementById('valorUnitarioInferior').value) || 0;
-        const valorAdicional = parseFloat(document.getElementById('valorAdicionalTamanho6').value) || 0;
-        
-        let total = (qtdSuperior * valorSuperior) + (qtdInferior * valorInferior);
-        if (qtdTamanho6 > 0) total += qtdTamanho6 * valorAdicional;
-        if (qtdTamanho8 > 0) total += qtdTamanho8 * valorAdicional;
-        
-        document.getElementById('valorTotalPreview').textContent = `R$ ${total.toFixed(2)}`;
-    }
-    
-    saveLote() {
-        const lote = this.editingLote;
-        lote.referencia = document.getElementById('referencia').value;
-        lote.tipo = document.getElementById('tipo').value;
-        lote.qtdSuperior = parseFloat(document.getElementById('qtdSuperior').value) || 0;
-        lote.qtdInferior = parseFloat(document.getElementById('qtdInferior').value) || 0;
-        lote.qtdTamanho6 = parseFloat(document.getElementById('qtdTamanho6').value) || 0;
-        lote.qtdTamanho8 = parseFloat(document.getElementById('qtdTamanho8').value) || 0;
-        lote.valorUnitarioSuperior = parseFloat(document.getElementById('valorUnitarioSuperior').value) || 0;
-        lote.valorUnitarioInferior = parseFloat(document.getElementById('valorUnitarioInferior').value) || 0;
-        lote.valorAdicionalTamanho6 = parseFloat(document.getElementById('valorAdicionalTamanho6').value) || 0;
-        lote.status = document.getElementById('status').value;
-        
-        if (lote.status === 'finalizado' && !lote.dataFim) {
-            lote.dataFim = new Date().toISOString();
-        }
-        
-        if (this.editingLote.id) {
-            this.loteService.editLote(lote);
+    toggleSize(size) {
+        const idx = this.currentEditingLote.tamanhos.indexOf(size);
+        if (idx > -1) {
+            this.currentEditingLote.tamanhos.splice(idx, 1);
         } else {
-            this.loteService.addLote(lote);
+            this.currentEditingLote.tamanhos.push(size);
+        }
+        this.renderLoteFormContent();
+    }
+    
+    toggleAdicional() {
+        this.currentEditingLote.cobraAdicional = !this.currentEditingLote.cobraAdicional;
+        this.renderLoteFormContent();
+    }
+    
+    updateTotal() {
+        this.currentEditingLote.calcularTotal();
+        const preview = document.getElementById('totalPreview');
+        if (preview) {
+            preview.innerHTML = `
+                <div class="total-preview-label">VALOR TOTAL PREVISTO</div>
+                <div class="total-preview-value">R$ ${this.currentEditingLote.valorTotal.toFixed(2)}</div>
+            `;
+        }
+    }
+    
+    saveLote(e) {
+        e.preventDefault();
+        const form = e.target;
+        
+        this.currentEditingLote.referencia = form.querySelector('input').value;
+        this.currentEditingLote.calcularTotal();
+        
+        const isNew = !this.lotes.find(l => l.id === this.currentEditingLote.id);
+        if (isNew) {
+            this.lotes.unshift(this.currentEditingLote);
         }
         
-        this.closeModal();
+        this.storage.saveLotes(this.lotes);
         this.renderMain(document.getElementById('app'));
+        this.renderDashboard();
     }
     
-    finalizarLote(loteId) {
-        const lote = this.loteService.getLote(loteId);
-        if (lote) {
-            lote.status = 'finalizado';
-            lote.dataFim = new Date().toISOString();
-            this.loteService.editLote(lote);
-            this.renderMain(document.getElementById('app'));
-        }
-    }
-    
-    deleteLote(loteId) {
-        if (confirm('Deseja realmente deletar este lote?')) {
-            this.loteService.deleteLote(loteId);
-            this.renderMain(document.getElementById('app'));
-        }
-    }
-    
-    openSettingsModal() {
-        const modalsContainer = document.getElementById('modals');
-        const settings = this.loteService.settings;
-        
-        modalsContainer.innerHTML = `
-            <div class="modal">
-                <div class="modal-content">
-                    <div class="modal-header">
-                        <h2 class="modal-title">Configurações</h2>
-                        <button type="button" class="modal-close">✕</button>
-                    </div>
-                    
-                    <form id="settingsForm" class="settings-modal">
-                        <div class="settings-section">
-                            <label class="settings-section-title">Logo e Nome</label>
-                            <div class="form-group">
-                                <label>Nome do App</label>
-                                <input type="text" id="appName" value="${settings.appName}">
-                            </div>
-                            <div class="form-group">
-                                <label>URL da Logo (opcional)</label>
-                                <input type="text" id="logoUrl" value="${settings.logo}" placeholder="icon-192.png">
-                            </div>
+    showMetaModal() {
+        const app = document.getElementById('app');
+        app.innerHTML = `
+            <div class="modal-overlay" onclick="event.target === this && app.history.back()">
+                <div class="modal" style="max-height: 300px; margin-top: auto; margin-bottom: auto; width: 80%; margin-left: auto; margin-right: auto; border-radius: 2rem;">
+                    <div style="text-align: center;">
+                        <div class="modal-title">DEFINIR META</div>
+                        <input type="number" step="100" value="${this.settings.metaMensal}" style="margin: 1rem 0; width: 80%; padding: 1rem; border: 2px solid var(--gray-border); border-radius: 1rem; font-size: 1.25rem;" id="metaInput">
+                        <div class="modal-actions">
+                            <button class="btn btn-secondary" onclick="window.history.back()">CANCELAR</button>
+                            <button class="btn btn-primary" onclick="app.saveMeta()">SALVAR</button>
                         </div>
-                        
-                        <div class="settings-section">
-                            <label class="settings-section-title">Metas e Contato</label>
-                            <div class="form-group">
-                                <label>Meta Mensal (R$)</label>
-                                <input type="number" id="monthlyGoal" value="${settings.monthlyGoal}" min="0" step="100">
-                            </div>
-                            <div class="form-group">
-                                <label>Número WhatsApp (opcional)</label>
-                                <input type="tel" id="whatsappNumber" value="${settings.whatsappNumber}" placeholder="11999999999">
-                            </div>
-                        </div>
-                    </form>
-                    
-                    <div class="modal-footer">
-                        <button type="button" class="btn btn-secondary" onclick="ui.closeModal()">Cancelar</button>
-                        <button type="submit" form="settingsForm" class="btn btn-primary">Salvar</button>
                     </div>
                 </div>
             </div>
         `;
-        
-        const form = document.getElementById('settingsForm');
-        const closeBtn = modalsContainer.querySelector('.modal-close');
-        
-        closeBtn.addEventListener('click', () => this.closeModal());
-        modalsContainer.addEventListener('click', (e) => {
-            if (e.target === modalsContainer) this.closeModal();
-        });
-        
-        form.addEventListener('submit', (e) => {
-            e.preventDefault();
-            this.saveSettings();
-        });
     }
     
-    saveSettings() {
-        const newSettings = {
-            appName: document.getElementById('appName').value,
-            logo: document.getElementById('logoUrl').value || 'icon-192.png',
-            monthlyGoal: parseFloat(document.getElementById('monthlyGoal').value) || 3000,
-            whatsappNumber: document.getElementById('whatsappNumber').value
-        };
-        
-        this.loteService.updateSettings(newSettings);
-        this.closeModal();
-        this.renderMain(document.getElementById('app'));
+    saveMeta() {
+        const metaInput = document.getElementById('metaInput');
+        this.settings.metaMensal = parseFloat(metaInput.value) || 9000;
+        this.storage.saveSettings(this.settings);
+        this.render();
     }
     
-    closeModal() {
-        document.getElementById('modals').innerHTML = '';
+    showReport() {
+        const app = document.getElementById('app');
+        const today = new Date();
+        const monthName = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'][today.getMonth()];
+        const dateStr = String(today.getDate()).padStart(2, '0') + '/' + String(today.getMonth() + 1).padStart(2, '0') + '/' + today.getFullYear();
+        
+        const lotes = this.getFilteredLotes().filter(l => l.status === 'finalizado');
+        const total = lotes.reduce((sum, l) => sum + l.valorTotal, 0);
+        const qtd = lotes.reduce((sum, l) => sum + (l.qtdSuperior + l.qtdInferior), 0);
+        
+        let html = `
+            <div class="report-screen">
+                <div class="report-header">
+                    <button class="report-back" onclick="app.render()">← Voltar</button>
+                </div>
+                
+                <div class="report-content">
+                    <div class="report-title">GESTÃO COSTURA</div>
+                    <div style="text-align: center; margin-bottom: 1rem;">
+                        <span style="background: var(--primary); color: var(--white); padding: 0.25rem 0.75rem; border-radius: 0.5rem; font-size: 0.625rem; font-weight: 700;">RELATÓRIO FINANCEIRO</span>
+                        <span style="color: var(--accent); font-weight: 700; margin-left: 0.5rem;">${monthName}</span>
+                    </div>
+                    <div class="report-date">DATA DE EMISSÃO<br>${dateStr}</div>
+                    
+                    <div class="report-cards">
+                        <div class="report-card">
+                            <div class="report-card-label">FATURAMENTO TOTAL</div>
+                            <div class="report-card-value">R$ ${total.toFixed(2)}</div>
+                            <div style="font-size: 0.75rem; margin-top: 0.5rem; opacity: 0.7;">Líquido</div>
+                        </div>
+                        <div class="report-card">
+                            <div class="report-card-label">PRODUÇÃO TOTAL</div>
+                            <div class="report-card-value">${qtd}</div>
+                            <div style="font-size: 0.75rem; margin-top: 0.5rem; opacity: 0.7;">peças</div>
+                        </div>
+                    </div>
+                    
+                    ${lotes.length === 0 ? `
+                        <div style="text-align: center; padding: 2rem; color: var(--gray-text);">
+                            NENHUM REGISTRO ENCONTRADO
+                        </div>
+                    ` : ''}
+                </div>
+            </div>
+        `;
+        
+        app.innerHTML = html;
     }
     
     logout() {
-        if (confirm('Deseja realmente sair? Seus dados serão mantidos.')) {
+        if (confirm('Deseja realmente sair?')) {
             this.storage.clearUser();
             this.user = null;
             this.render();
@@ -715,8 +684,8 @@ class UIController {
     }
 }
 
-// ===== INITIALIZATION =====
-let ui;
+// ===== INIT =====
+let app;
 document.addEventListener('DOMContentLoaded', () => {
-    ui = new UIController();
+    app = new App();
 });
