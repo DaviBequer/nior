@@ -119,39 +119,11 @@ class App {
     
     render() {
         const app = document.getElementById('app');
+        // Sempre vai pro main
         if (!this.user) {
-            this.renderLogin(app);
-        } else {
-            this.renderMain(app);
+            this.user = { name: 'Costureira', date: new Date().toISOString() };
         }
-    }
-    
-    renderLogin(container) {
-        container.innerHTML = `
-            <div class="login-screen">
-                <div class="login-logo">
-                    <img src="icon-192.png" alt="Logo" onerror="this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22%3E%3Ccircle cx=%2250%22 cy=%2250%22 r=%2250%22 fill=%22%231e3a8a%22/%3E%3C/svg%3E'">
-                </div>
-                <h1 class="login-title">Gestão Costura</h1>
-                <form class="login-form" id="loginForm">
-                    <div class="form-group">
-                        <label>Nome</label>
-                        <input type="text" placeholder="Seu nome" required autofocus>
-                    </div>
-                    <button type="submit" class="btn btn-primary">Entrar</button>
-                </form>
-            </div>
-        `;
-        
-        document.getElementById('loginForm').addEventListener('submit', (e) => {
-            e.preventDefault();
-            const name = e.target.querySelector('input').value.trim();
-            if (name) {
-                this.user = { name, date: new Date().toISOString() };
-                this.storage.saveUser(this.user);
-                this.render();
-            }
-        });
+        this.renderMain(app);
     }
     
     renderMain(container) {
@@ -319,32 +291,42 @@ class App {
     }
     
     newLote() {
-        const app = document.getElementById('app');
-        app.innerHTML = `
-            <div class="modal-overlay" onclick="event.target === this && app.history.back()">
-                <div class="modal">
-                    <div class="modal-header">
-                        <div class="modal-title">NOVO LOTE</div>
-                        <button class="modal-close" onclick="window.history.back()">✕</button>
-                    </div>
-                    
-                    <div class="type-selection">
-                        <button class="type-card" onclick="app.selectType('superior')" style="grid-column: 1 / -1;">
-                            <div class="type-card-icon">👕</div>
-                            <div class="type-card-label">SUPERIOR</div>
-                        </button>
-                        <button class="type-card" onclick="app.selectType('inferior')">
-                            <div class="type-card-icon">👖</div>
-                            <div class="type-card-label">INFERIOR</div>
-                        </button>
-                        <button class="type-card" onclick="app.selectType('conjunto')">
-                            <div class="type-card-icon">🧥</div>
-                            <div class="type-card-label">CONJUNTO</div>
-                        </button>
-                    </div>
+        this.showTypeSelector();
+    }
+    
+    showTypeSelector() {
+        const content = document.getElementById('mainContent');
+        const overlay = document.createElement('div');
+        overlay.className = 'modal-overlay';
+        overlay.innerHTML = `
+            <div class="modal">
+                <div class="modal-header">
+                    <div class="modal-title">NOVO LOTE</div>
+                    <button class="modal-close" onclick="app.closeModal()">✕</button>
+                </div>
+                
+                <div class="type-selection">
+                    <button class="type-card" onclick="app.selectType('superior')" style="grid-column: 1 / -1;">
+                        <div class="type-card-icon">👕</div>
+                        <div class="type-card-label">SUPERIOR</div>
+                    </button>
+                    <button class="type-card" onclick="app.selectType('inferior')">
+                        <div class="type-card-icon">👖</div>
+                        <div class="type-card-label">INFERIOR</div>
+                    </button>
+                    <button class="type-card" onclick="app.selectType('conjunto')">
+                        <div class="type-card-icon">🧥</div>
+                        <div class="type-card-label">CONJUNTO</div>
+                    </button>
                 </div>
             </div>
         `;
+        
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) app.closeModal();
+        });
+        
+        document.body.appendChild(overlay);
     }
     
     selectType(tipo) {
@@ -361,24 +343,37 @@ class App {
     
     showLoteForm() {
         const lote = this.currentEditingLote;
-        const isNew = !this.lotes.find(l => l.id === lote.id);
         
-        const app = document.getElementById('app');
-        app.innerHTML = `
-            <div class="modal-overlay">
-                <div class="modal">
-                    <div class="modal-header">
-                        <button class="btn-secondary" style="padding: 0.5rem 1rem;" onclick="window.history.back()">←</button>
-                        <div class="modal-title">${lote.tipo.toUpperCase()}</div>
-                        <button class="modal-close" onclick="window.history.back()">✕</button>
-                    </div>
-                    
-                    <div id="loteFormContainer"></div>
+        // Remove overlay anterior se existir
+        const oldOverlay = document.querySelector('.modal-overlay');
+        if (oldOverlay) oldOverlay.remove();
+        
+        const overlay = document.createElement('div');
+        overlay.className = 'modal-overlay';
+        overlay.innerHTML = `
+            <div class="modal">
+                <div class="modal-header">
+                    <button class="btn-secondary" style="padding: 0.5rem 1rem; background: none; border: none; color: var(--primary); cursor: pointer; font-size: 1.5rem;" onclick="app.closeModal()">←</button>
+                    <div class="modal-title">${lote.tipo.toUpperCase()}</div>
+                    <button class="modal-close" onclick="app.closeModal()">✕</button>
                 </div>
+                
+                <div id="loteFormContainer"></div>
             </div>
         `;
         
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) app.closeModal();
+        });
+        
+        document.body.appendChild(overlay);
+        
         this.renderLoteFormContent();
+    }
+    
+    closeModal() {
+        const overlay = document.querySelector('.modal-overlay');
+        if (overlay) overlay.remove();
     }
     
     renderLoteFormContent() {
@@ -597,37 +592,42 @@ class App {
         }
         
         this.storage.saveLotes(this.lotes);
-        this.renderMain(document.getElementById('app'));
+        this.closeModal();
         this.renderDashboard();
     }
     
     showMetaModal() {
-        const app = document.getElementById('app');
-        app.innerHTML = `
-            <div class="modal-overlay" onclick="event.target === this && app.history.back()">
-                <div class="modal" style="max-height: 300px; margin-top: auto; margin-bottom: auto; width: 80%; margin-left: auto; margin-right: auto; border-radius: 2rem;">
-                    <div style="text-align: center;">
-                        <div class="modal-title">DEFINIR META</div>
-                        <input type="number" step="100" value="${this.settings.metaMensal}" style="margin: 1rem 0; width: 80%; padding: 1rem; border: 2px solid var(--gray-border); border-radius: 1rem; font-size: 1.25rem;" id="metaInput">
-                        <div class="modal-actions">
-                            <button class="btn btn-secondary" onclick="window.history.back()">CANCELAR</button>
-                            <button class="btn btn-primary" onclick="app.saveMeta()">SALVAR</button>
-                        </div>
+        const overlay = document.createElement('div');
+        overlay.className = 'modal-overlay';
+        overlay.innerHTML = `
+            <div class="modal" style="max-height: 300px; margin-top: auto; margin-bottom: auto; width: 80%; margin-left: auto; margin-right: auto; border-radius: 2rem;">
+                <div style="text-align: center;">
+                    <div class="modal-title">DEFINIR META</div>
+                    <input type="number" step="100" value="${this.settings.metaMensal}" style="margin: 1rem 0; width: 80%; padding: 1rem; border: 2px solid var(--gray-border); border-radius: 1rem; font-size: 1.25rem;" id="metaInput">
+                    <div class="modal-actions">
+                        <button class="btn btn-secondary" onclick="app.closeModal()">CANCELAR</button>
+                        <button class="btn btn-primary" onclick="app.saveMeta()">SALVAR</button>
                     </div>
                 </div>
             </div>
         `;
+        
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) app.closeModal();
+        });
+        
+        document.body.appendChild(overlay);
     }
     
     saveMeta() {
         const metaInput = document.getElementById('metaInput');
         this.settings.metaMensal = parseFloat(metaInput.value) || 9000;
         this.storage.saveSettings(this.settings);
-        this.render();
+        this.closeModal();
+        this.renderDashboard();
     }
     
     showReport() {
-        const app = document.getElementById('app');
         const today = new Date();
         const monthName = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'][today.getMonth()];
         const dateStr = String(today.getDate()).padStart(2, '0') + '/' + String(today.getMonth() + 1).padStart(2, '0') + '/' + today.getFullYear();
@@ -636,10 +636,13 @@ class App {
         const total = lotes.reduce((sum, l) => sum + l.valorTotal, 0);
         const qtd = lotes.reduce((sum, l) => sum + (l.qtdSuperior + l.qtdInferior), 0);
         
-        let html = `
-            <div class="report-screen">
+        const overlay = document.createElement('div');
+        overlay.className = 'modal-overlay';
+        overlay.style.backgroundColor = 'var(--primary)';
+        overlay.innerHTML = `
+            <div class="report-screen" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: var(--primary); overflow-y: auto;">
                 <div class="report-header">
-                    <button class="report-back" onclick="app.render()">← Voltar</button>
+                    <button class="report-back" onclick="app.closeModal()">← Voltar</button>
                 </div>
                 
                 <div class="report-content">
@@ -672,12 +675,11 @@ class App {
             </div>
         `;
         
-        app.innerHTML = html;
+        document.body.appendChild(overlay);
     }
     
     logout() {
-        if (confirm('Deseja realmente sair?')) {
-            this.storage.clearUser();
+        if (confirm('Deseja realmente sair? Seus dados serão mantidos.')) {
             this.user = null;
             this.render();
         }
